@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 export default function App() {
   return (
     <View style={styles.container}>
-      <Text>Guilherme é gay!</Text>
+      <Text>Guilherme não é gay!</Text>
       <StatusBar style="auto" />
     </View>
   );
