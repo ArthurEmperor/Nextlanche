@@ -36,24 +36,18 @@ export default function App() {
   }, [])
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator>
-        {session ? (
-          <>
-            <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'NextLanche 🍔' }} />
-            <Stack.Screen name="Histórico" component={HistoricoScreen} />
-            <Stack.Screen name="Perfil" component={PerfilScreen} />
-            <Stack.Screen name="Sobre" component={SobreScreen} />
-            <Stack.Screen name="DetalhesCompra" component={DetalhesCompraScreen} />
-          </>
-        ) : (
-          <Stack.Screen
-            name="Login"
-            component={LoginScreen}
-            options={{ headerShown: false }}
-          />
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
-  )
+    <View style={styles.container}>
+      <Text>Arthur é gay!</Text>
+      <StatusBar style="auto" />
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
