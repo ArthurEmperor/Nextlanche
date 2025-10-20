@@ -1,14 +1,5 @@
-import React, { useEffect, useState } from 'react'
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from "react-native";
-import { NavigationContainer } from '@react-navigation/native'
-import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { supabase } from './services/supabase'
-import LoginScreen from './screens/loginScreens'
-import HomeScreen from './screens/homeScreens'
-import HistoricoScreen from './screens/historicoScreens'
-import PerfilScreen from './screens/perfilScreens'
-import SobreScreen from './screens/sobreScreens'
-import DetalhesCompraScreen from './screens/detalhescompra'
+import React, { useState } from 'react'
 
 
 
