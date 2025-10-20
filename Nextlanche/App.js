@@ -9,7 +9,6 @@ import PerfilScreen from './screens/perfilScreens'
 import SobreScreen from './screens/sobreScreens'
 import DetalhesCompraScreen from './screens/detalhescompra'
 
-const Stack = createNativeStackNavigator()
 
 export default function App() {
   const [session, setSession] = useState(null)
