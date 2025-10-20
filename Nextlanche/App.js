@@ -2,8 +2,8 @@ import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
-import HomeScreens from "./screens/homeScreens";
-import CantinaScreens from "./screens/cantinaScreen";
+import homeScreens from "./screens/homeScreens";
+import cantinaScreens from "./screens/cantinaScreens";
 
 const Drawer = createDrawerNavigator();
 
@@ -19,7 +19,7 @@ export default function App() {
       >
         <Drawer.Screen
           name="Início"
-          component={HomeScreens}
+          component={homeScreens}
           options={{
             drawerIcon: ({ color, size }) => (
               <FontAwesome name="home" color={color} size={size} />
@@ -28,10 +28,10 @@ export default function App() {
         />
         <Drawer.Screen
           name="Cantina"
-          component={CantinaScreens}
+          component={cantinaScreens}
           options={{
             drawerIcon: ({ color, size }) => (
-              <FontAwesome name="cutlery" color={color} size={size} />
+              <FontAwesome name="cantina" color={color} size={size} />
             ),
           }}
         />
