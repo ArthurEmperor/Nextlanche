@@ -1,17 +1,16 @@
-
-import React, { createContext, useState, useContext } from "react";
+import React, { createContext, useState, useContext } from 'react';
 
 export const UserContext = createContext();
 
 export const UserProvider = ({ children }) => {
-  const [username, setUsername] = useState(""); // Apenas um nome
+  const [user, setUser] = useState(null);
+  const [saldo, setSaldo] = useState(0);
 
   return (
-    <UserContext.Provider value={{ username, setUsername }}>
+    <UserContext.Provider value={{ user, setUser, saldo, setSaldo }}>
       {children}
     </UserContext.Provider>
   );
 };
 
-// Hook personalizado para facilitar o uso
-export const useUserContext = () => useContext(UserContext);
+export const useUser = () => useContext(UserContext);
