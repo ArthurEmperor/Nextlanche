@@ -17,7 +17,7 @@ export default function CantinaScreen() {
       setSaldo(saldo - item.preco);
       alert(`Você comprou ${item.nome}! 🍴`);
     } else {
-      alert("Saldo insuficiente 😢");
+      alert("Saldo insuficiente");
     }
   };
 
@@ -34,7 +34,7 @@ export default function CantinaScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.titulo}>Cantina</Text>
-      <Text style={styles.saldo}>💰 Saldo: R$ {saldo.toFixed(2)}</Text>
+      <Text style={styles.saldo}> Saldo: R$ {saldo.toFixed(2)}</Text>
 
       <FlatList
         data={comidas}
