@@ -21,6 +21,7 @@ export default function App() {
           name="Início"
           component={homeScreens}
           options={{
+            
             drawerIcon: ({ color, size }) => (
               <FontAwesome name="home" color={color} size={size} />
             ),
