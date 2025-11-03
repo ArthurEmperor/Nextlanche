@@ -7,7 +7,7 @@ import FontAwesome from "react-native-vector-icons/FontAwesome";
 import HomeScreens from "./screens/HomeScreens";
 import CantinaScreen from "./screens/cantinaScreens";
 import DetalhesCompra from "./screens/detalhesCompra";
-import TicketScreen from "./screens/ticketScreen";
+import TicketScreen from "./screens/TicketScreens";
 import HistoricoScreen from "./screens/historicoScreens";
 import PerfilScreen from "./screens/perfilScreens";
 import SobreScreen from "./screens/sobreScreens";
@@ -61,7 +61,7 @@ export default function App() {
 
           <Drawer.Screen
             name="Cantina"
-            component={CantinaStack}
+            component={CantinaScreen}
             options={{
               drawerIcon: ({ color, size }) => (
                 <FontAwesome name="cutlery" color={color} size={size} />
