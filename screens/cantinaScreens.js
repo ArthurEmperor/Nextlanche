@@ -12,7 +12,7 @@ export default function CantinaScreen() {
     { id: "6", nome: "Pizza", preco: 7.5 },
   ]);
 
-  //tirar mock para funcionar com Supabase
+  
 
   const comprar = (item) => {
     if (saldo >= item.preco) {
