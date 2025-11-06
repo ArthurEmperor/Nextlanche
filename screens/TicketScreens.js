@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
-export default function TicketScreen({ route }) {
+export default function TicketScreens({ route }) {
   const { codigo_unico } = route.params;
 
   return (

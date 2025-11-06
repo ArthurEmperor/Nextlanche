@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList } from 'react-native';
 import { supabase } from '../services/supabase';
 
-export default function HistoricoScreen() {
+export default function HistoricoScreens() {
   const [pedidos, setPedidos] = useState([]);
 
   useEffect(() => {

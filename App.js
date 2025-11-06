@@ -3,14 +3,12 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { createStackNavigator } from "@react-navigation/stack";
 
+import SobreScreen from "./screens/SobreScreens"
+import PerfilScreen from "./screens/PerfilScreens"
+import HistoricoScreen from "./screens/HistoricoScreens";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import HomeScreens from "./screens/HomeScreens";
-import CantinaScreen from "./screens/cantinaScreens";
-import DetalhesCompra from "./screens/detalhesCompra";
-import TicketScreen from "./screens/TicketScreens";
-import HistoricoScreen from "./screens/historicoScreens";
-import PerfilScreen from "./screens/perfilScreens";
-import SobreScreen from "./screens/sobreScreens";
+import TicketScreens from "./screens/TicketScreens";        
 import { CartProvider } from "./screens/Usercontext";
 
 const Drawer = createDrawerNavigator();
@@ -21,7 +19,7 @@ function CantinaStack() {
     <Stack.Navigator>
       <Stack.Screen
         name="Cardápio"
-        component={CantinaScreen}
+        component={CantinaScreens}
         options={{ headerShown: false }}
       />
       <Stack.Screen
@@ -31,7 +29,7 @@ function CantinaStack() {
       />
       <Stack.Screen
         name="Ticket"
-        component={TicketScreen}
+        component={TicketScreens}  
         options={{ title: "Seu Ticket Digital" }}
       />
     </Stack.Navigator>
@@ -61,7 +59,7 @@ export default function App() {
 
           <Drawer.Screen
             name="Cantina"
-            component={CantinaScreen}
+            component={CantinaStack}
             options={{
               drawerIcon: ({ color, size }) => (
                 <FontAwesome name="cutlery" color={color} size={size} />
@@ -91,7 +89,7 @@ export default function App() {
 
           <Drawer.Screen
             name="Sobre"
-            component={SobreScreen}
+            component={SobreScreen}  
             options={{
               drawerIcon: ({ color, size }) => (
                 <FontAwesome name="info-circle" color={color} size={size} />

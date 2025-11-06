@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-export default function SobreScreen() {
+export default function SobreScreens() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Sobre o App</Text>
