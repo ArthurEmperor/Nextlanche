@@ -12,10 +12,12 @@ export default function CantinaScreen() {
     { id: "6", nome: "Pizza", preco: 7.5 },
   ]);
 
+  
+
   const comprar = (item) => {
     if (saldo >= item.preco) {
       setSaldo(saldo - item.preco);
-      alert(`Você comprou ${item.nome}! 🍴`);
+      alert(`Você comprou ${item.nome}!`);
     } else {
       alert("Saldo insuficiente");
     }
