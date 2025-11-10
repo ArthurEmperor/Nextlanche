@@ -8,10 +8,10 @@ import SobreScreens from "./screens/sobreScreens";
 import PerfilScreens from "./screens/perfilScreens"; 
 import HistoricoScreens from "./screens/historicoScreens";
 import CantinaScreens from "./screens/cantinaScreens";
-import DetalhesCompra from "./screens/DetalhesCompra";
+import DetalhesCompra from "./screens/detalhesCompra";
 
 import FontAwesome from "react-native-vector-icons/FontAwesome";
-import HomeScreens from "./screens/HomeScreens";
+import HomeScreens from "./screens/homeScreens";
 import TicketScreens from "./screens/TicketScreens";        
 import { CartProvider } from "./screens/Usercontext";
 

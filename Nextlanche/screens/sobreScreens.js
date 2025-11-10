@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-
-
-=======
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
@@ -33,4 +29,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
->>>>>>> 34c81b068e748074be80cbad808c41cd7458533e
