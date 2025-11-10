@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 
-export default function homeScreen() {
+export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.titulo}>HOME</Text>

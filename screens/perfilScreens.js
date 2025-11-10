@@ -8,8 +8,6 @@ export default function PerfilScreens() {
     </View>
   );
 }
-
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,

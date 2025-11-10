@@ -3,9 +3,13 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { createStackNavigator } from "@react-navigation/stack";
 
-import SobreScreen from "./screens/SobreScreens"
-import PerfilScreen from "./screens/PerfilScreens"
-import HistoricoScreen from "./screens/HistoricoScreens";
+
+import SobreScreens from "./screens/sobreScreens";  
+import PerfilScreens from "./screens/perfilScreens"; 
+import HistoricoScreens from "./screens/historicoScreens";
+import CantinaScreens from "./screens/CantinaScreens";
+import DetalhesCompra from "./screens/DetalhesCompra";
+
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import HomeScreens from "./screens/HomeScreens";
 import TicketScreens from "./screens/TicketScreens";        
@@ -19,12 +23,12 @@ function CantinaStack() {
     <Stack.Navigator>
       <Stack.Screen
         name="Cardápio"
-        component={CantinaScreens}
+        component={CantinaScreens}  
         options={{ headerShown: false }}
       />
       <Stack.Screen
         name="Carrinho"
-        component={DetalhesCompra}
+        component={DetalhesCompra}  
         options={{ title: "Carrinho de Compras" }}
       />
       <Stack.Screen
@@ -69,7 +73,7 @@ export default function App() {
 
           <Drawer.Screen
             name="Histórico"
-            component={HistoricoScreen}
+            component={HistoricoScreens}
             options={{
               drawerIcon: ({ color, size }) => (
                 <FontAwesome name="list" color={color} size={size} />
@@ -79,7 +83,7 @@ export default function App() {
 
           <Drawer.Screen
             name="Perfil"
-            component={PerfilScreen}
+            component={PerfilScreens}
             options={{
               drawerIcon: ({ color, size }) => (
                 <FontAwesome name="user" color={color} size={size} />
@@ -89,7 +93,7 @@ export default function App() {
 
           <Drawer.Screen
             name="Sobre"
-            component={SobreScreen}  
+            component={SobreScreens}
             options={{
               drawerIcon: ({ color, size }) => (
                 <FontAwesome name="info-circle" color={color} size={size} />

@@ -6,7 +6,7 @@ export default function SobreScreens() {
     <View style={styles.container}>
       <Text style={styles.title}>Sobre o App</Text>
       <Text style={styles.text}>
-        Este aplicativo foi desenvolvido para gerenciar fichas da cantina.
+        Este aplicativo foi feito para gerenciar fichas da cantina.
       </Text>
     </View>
   );
