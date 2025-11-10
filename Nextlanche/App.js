@@ -7,7 +7,7 @@ import { createStackNavigator } from "@react-navigation/stack";
 import SobreScreens from "./screens/sobreScreens";  
 import PerfilScreens from "./screens/perfilScreens"; 
 import HistoricoScreens from "./screens/historicoScreens";
-import CantinaScreens from "./screens/CantinaScreens";
+import CantinaScreens from "./screens/cantinaScreens";
 import DetalhesCompra from "./screens/DetalhesCompra";
 
 import FontAwesome from "react-native-vector-icons/FontAwesome";
