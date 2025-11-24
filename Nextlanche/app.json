@@ -4,7 +4,7 @@
     "slug": "Nextlanche",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/IconeNL.png",
+    "icon": "./assets/IconNextlanche.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {

@@ -10,12 +10,26 @@ export default function HistoricoScreens() {
   }, []);
 
   const carregarPedidos = async () => {
-    const { data } = await supabase
-      .from('transacoes')
-      .select('*')
-      .eq('tipo', 'compra')
-      .eq('aluno_id', 'ALUNO_ID_AQUI')
-      .order('created_at', { ascending: false });
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !userData?.user) {
+      console.log("Usuário não logado.");
+      return;
+    }
+
+    const alunoId = userData.user.id;
+
+    const { data, error } = await supabase
+      .from("transacoes")
+      .select("*")
+      .eq("tipo", "compra")
+      .eq("aluno_id", alunoId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.log("Erro ao buscar histórico:", error);
+      return;
+    }
 
     setPedidos(data);
   };
