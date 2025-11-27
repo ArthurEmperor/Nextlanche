@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList } from 'react-native';
-import { supabase } from '../services/supabase';
+import React, { useEffect, useState } from "react";
+import { View, Text, FlatList } from "react-native";
+import { supabase } from "../services/supabase";
 
 export default function HistoricoScreens() {
   const [pedidos, setPedidos] = useState([]);
@@ -37,7 +37,7 @@ export default function HistoricoScreens() {
   return (
     <FlatList
       data={pedidos}
-      keyExtractor={(item) => item.id}
+      keyExtractor={(item) => item.id.toString()}
       renderItem={({ item }) => (
         <View style={{ padding: 10, borderBottomWidth: 1 }}>
           <Text>Data: {new Date(item.created_at).toLocaleString()}</Text>

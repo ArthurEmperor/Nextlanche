@@ -2,12 +2,12 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
 import { supabase } from "../services/supabase";
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
 
   const login = async () => {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password: senha,
     });
@@ -18,11 +18,11 @@ export default function LoginScreen({ navigation }) {
     }
 
     alert("Login realizado!");
-    navigation.replace("Home"); // muda para a tela principal
+
   };
 
   const registrar = async () => {
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password: senha,
     });
@@ -32,7 +32,7 @@ export default function LoginScreen({ navigation }) {
       return;
     }
 
-    alert("Conta criada! Verifique seu email.");
+    alert("Conta criada! Entre na sua conta.");
   };
 
   return (
@@ -42,9 +42,9 @@ export default function LoginScreen({ navigation }) {
       <TextInput
         style={styles.input}
         placeholder="Email"
+        autoCapitalize="none"
         value={email}
         onChangeText={setEmail}
-        autoCapitalize="none"
       />
 
       <TextInput
