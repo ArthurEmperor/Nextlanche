@@ -5,6 +5,7 @@ import { createStackNavigator } from "@react-navigation/stack";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import { supabase } from "./services/supabase";
 
+// Telas
 import SobreScreens from "./screens/sobreScreens";
 import PerfilScreens from "./screens/perfilScreens";
 import HistoricoScreens from "./screens/historicoScreens";
@@ -15,11 +16,20 @@ import HomeScreens from "./screens/homeScreens";
 import TicketScreens from "./screens/TicketScreens";
 import AdminPanel from "./screens/AdminPanel";
 
+import GerenciarProdutos from "./screens/GerenciarProdutos";
+import Pedidos from "./screens/Pedidos";
+import Usuarios from "./screens/Usuarios";
+import Config from "./screens/Config";
+
 import { CartProvider } from "./screens/Usercontext";
 
+// Navigators
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
 
+/* =====================================================
+    STACK DA CANTINA
+===================================================== */
 function CantinaStack() {
   return (
     <Stack.Navigator>
@@ -31,17 +41,55 @@ function CantinaStack() {
       <Stack.Screen
         name="Carrinho"
         component={DetalhesCompra}
-        options={{ title: "Carrinho de Compras" }}
+        options={{ title: "Carrinho" }}
       />
       <Stack.Screen
         name="Ticket"
         component={TicketScreens}
-        options={{ title: "Seu Ticket Digital" }}
+        options={{ title: "Ticket Digital" }}
       />
     </Stack.Navigator>
   );
 }
 
+/* =====================================================
+    STACK DO ADMINISTRADOR — TODAS AS TELAS DO ADMIN
+===================================================== */
+function AdminStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen
+        name="AdminPanel"
+        component={AdminPanel}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="GerenciarProdutos"
+        component={GerenciarProdutos}
+        options={{ title: "Gerenciar Produtos" }}
+      />
+      <Stack.Screen
+        name="Pedidos"
+        component={Pedidos}
+        options={{ title: "Pedidos" }}
+      />
+      <Stack.Screen
+        name="Usuarios"
+        component={Usuarios}
+        options={{ title: "Gerenciar Usuários" }}
+      />
+      <Stack.Screen
+        name="Config"
+        component={Config}
+        options={{ title: "Configurações" }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+/* =====================================================
+    MENU LATERAL
+===================================================== */
 function DrawerMenu({ isAdmin }) {
   return (
     <Drawer.Navigator
@@ -101,13 +149,12 @@ function DrawerMenu({ isAdmin }) {
         }}
       />
 
-      {/*  Mostra APENAS para administradores */}
+      {/* APARECE SÓ SE FOR ADMIN */}
       {isAdmin && (
         <Drawer.Screen
-          name="AdminPanel"
-          component={AdminPanel}
+          name="Admin"
+          component={AdminStack}
           options={{
-            title: "Admin",
             drawerIcon: ({ color, size }) => (
               <FontAwesome name="shield" color={color} size={size} />
             ),
@@ -118,61 +165,33 @@ function DrawerMenu({ isAdmin }) {
   );
 }
 
+/* =====================================================
+    APP PRINCIPAL
+===================================================== */
 export default function App() {
   const [session, setSession] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
- 
   useEffect(() => {
-    console.log("🔵 APP INICIADO");
-
     supabase.auth.getSession().then(({ data }) => {
-      console.log("➡️ getSession USER:", data.session?.user);
-      console.log("➡️ getSession USER ID:", data.session?.user?.id);
-
       setSession(data.session);
 
-      if (data.session?.user) {
-        checkAdmin(data.session.user.id);
-      }
+      if (data.session?.user) checkAdmin(data.session.user.id);
     });
 
     supabase.auth.onAuthStateChange((_event, session) => {
-      console.log("🔄 onAuthStateChange USER:", session?.user);
-      console.log("🔄 onAuthStateChange USER ID:", session?.user?.id);
-
       setSession(session);
 
-      if (session?.user) {
-        checkAdmin(session.user.id);
-      }
+      if (session?.user) checkAdmin(session.user.id);
     });
   }, []);
 
-  useEffect(() => {
-    async function testTable() {
-      const { data, error } = await supabase.from("usuarios").select("*");
-
-      console.log("🧪 TESTE TABELA usuarios:", data);
-      console.log("🧪 ERRO TABELA usuarios:", error);
-    }
-
-    testTable();
-  }, []);
-  
-
   async function checkAdmin(userId) {
-    console.log("🟦 checkAdmin() CHAMADO");
-    console.log("🟦 UserId recebido:", userId);
-
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("usuarios")
       .select("tipo")
       .eq("id", userId)
       .single();
-
-    console.log("🟩 Retorno do banco:", data);
-    console.log("🟥 Erro do banco:", error);
 
     setIsAdmin(data?.tipo === "admin");
   }
