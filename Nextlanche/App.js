@@ -27,9 +27,7 @@ import { CartProvider } from "./screens/Usercontext";
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
 
-/* =====================================================
-    STACK DA CANTINA
-===================================================== */
+/* Tela da cantina*/
 function CantinaStack() {
   return (
     <Stack.Navigator>
@@ -52,9 +50,7 @@ function CantinaStack() {
   );
 }
 
-/* =====================================================
-    STACK DO ADMINISTRADOR — TODAS AS TELAS DO ADMIN
-===================================================== */
+/*tela do admin*/
 function AdminStack() {
   return (
     <Stack.Navigator>

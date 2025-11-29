@@ -1,221 +1,226 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert } from "react-native";
+import React, { useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal } from "react-native";
 import QRCode from "react-native-qrcode-svg";
-import { supabase } from "../services/supabase";
 
 export default function CantinaScreen() {
-  const [saldo, setSaldo] = useState(0);
-  const [userId, setUserId] = useState(null);
+  const [saldo, setSaldo] = useState(100);
   const [carrinho, setCarrinho] = useState([]);
-  const [mostrarCarrinho, setMostrarCarrinho] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [pedidoQRCode, setPedidoQRCode] = useState(null);
+  const [mostrarQR, setMostrarQR] = useState(false);
 
-  const [comidas] = useState([
-    { nome: "Coxinha", preco: 5 },
+  const produtos = [
+    { nome: "Coxinha", preco: 5.0 },
     { nome: "Pastel", preco: 6.5 },
-    { nome: "Refrigerante", preco: 4 },
-    { nome: "Brigadeiro", preco: 3 },
-    { nome: "Kalzone", preco: 5.5 },
-    { nome: "Pizza", preco: 7.5 },
-  ]);
+    { nome: "Refrigerante", preco: 4.0 },
+    { nome: "Brigadeiro", preco: 3.0 },
+  ];
 
-  // 🔵 PEGA O USER MAS NÃO USA SALDO DO BANCO
-  useEffect(() => {
-    async function loadUser() {
-      const { data } = await supabase.auth.getSession();
-      const id = data.session?.user?.id;
-      if (!id) return;
-
-      setUserId(id);
-    }
-
-    loadUser();
-  }, []);
-
-  const adicionarAoCarrinho = (item) => {
-    if (saldo < total + item.preco) {
-      Alert.alert("Saldo insuficiente", "Você não tem saldo suficiente!");
-      return;
-    }
-
+  function adicionarItem(item) {
     setCarrinho([...carrinho, item]);
-    setTotal(total + item.preco);
-  };
+  }
 
-  const simularPagamento = () => {
-    if (total > saldo) {
-      return Alert.alert("Erro", "Saldo insuficiente.");
-    }
+  function gerarQR() {
+    setMostrarQR(true);
+  }
 
-    Alert.alert("Processando...", "Simulando pagamento...");
-    setTimeout(() => gerarQRCode(), 1500);
-  };
-
-  const gerarQRCode = async () => {
-    const pedido = {
-      itens: carrinho,
-      total: total,
-      data: new Date().toISOString(),
-    };
-
-    const codigo = JSON.stringify(pedido);
-    setPedidoQRCode(codigo);
-
-    // 🔴 SUBTRAI O SALDO LOCAL
-    setSaldo(saldo - total);
-
-    Alert.alert("Pagamento aprovado!", "QR Code gerado e saldo atualizado.");
-
-    setCarrinho([]);
-    setTotal(0);
-    setMostrarCarrinho(false);
-  };
-
-  const renderItem = ({ item }) => (
-    <View style={styles.item}>
-      <View>
-        <Text style={styles.nome}>{item.nome}</Text>
-        <Text style={styles.preco}>R$ {item.preco.toFixed(2)}</Text>
-      </View>
-
-      <TouchableOpacity style={styles.botao} onPress={() => adicionarAoCarrinho(item)}>
-        <Text style={styles.textoBotao}>Adicionar</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const total = carrinho.reduce((acc, item) => acc + item.preco, 0);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.titulo}>Cantina</Text>
-      <Text style={styles.saldo}>Saldo: R$ {saldo.toFixed(2)}</Text>
+      <ScrollView contentContainerStyle={{ paddingBottom: 50 }}>
+        
+        <Text style={styles.titulo}>Cantina</Text>
+        <Text style={styles.saldo}>Saldo: R$ {saldo.toFixed(2)}</Text>
 
-      {/* 🔵 BOTÃO DE ADICIONAR SALDO (LOCAL) */}
-      <TouchableOpacity
-        style={styles.addSaldoBotao}
-        onPress={() => setSaldo(saldo + 5)}
-      >
-        <Text style={styles.addSaldoTexto}>Adicionar R$ 5,00</Text>
-      </TouchableOpacity>
+        {/* Adicionar saldo */}
+        <TouchableOpacity style={styles.botaoAdd} onPress={() => setSaldo(saldo + 5)}>
+          <Text style={styles.textoBotaoAdd}>Adicionar R$ 5,00</Text>
+        </TouchableOpacity>
 
-      {!mostrarCarrinho && (
-        <>
-          <FlatList
-            data={comidas}
-            renderItem={renderItem}
-            keyExtractor={(item, index) => index.toString()}
-          />
+        {/* LISTA DE PRODUTOS */}
+        {produtos.map((item, index) => (
+          <View key={index} style={styles.card}>
+            <View>
+              <Text style={styles.nomeProduto}>{item.nome}</Text>
+              <Text style={styles.precoProduto}>R$ {item.preco.toFixed(2)}</Text>
+            </View>
 
-          <TouchableOpacity
-            style={styles.carrinhoBotao}
-            onPress={() => setMostrarCarrinho(true)}
-          >
-            <Text style={styles.carrinhoTexto}>
-              Ver Carrinho ({carrinho.length})
-            </Text>
-          </TouchableOpacity>
-        </>
-      )}
+            <TouchableOpacity style={styles.botaoAddCarrinho} onPress={() => adicionarItem(item)}>
+              <Text style={styles.textoAdd}>Adicionar</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
 
-      {mostrarCarrinho && (
-        <View style={styles.carrinhoContainer}>
-          <Text style={styles.carrinhoTitulo}>Carrinho</Text>
+        {/* CARRINHO */}
+        <View style={styles.boxCarrinho}>
+          <Text style={styles.tituloCarrinho}>Carrinho</Text>
 
-          {carrinho.map((item, index) => (
-            <Text key={index} style={styles.carrinhoItem}>
-              • {item.nome} — R$ {item.preco.toFixed(2)}
-            </Text>
-          ))}
+          <ScrollView style={styles.scrollCarrinho}>
+            {carrinho.map((item, i) => (
+              <Text key={i} style={styles.itemCarrinho}>• {item.nome} — R$ {item.preco.toFixed(2)}</Text>
+            ))}
+          </ScrollView>
 
           <Text style={styles.total}>Total: R$ {total.toFixed(2)}</Text>
 
-          <TouchableOpacity style={styles.pagarBotao} onPress={simularPagamento}>
-            <Text style={styles.pagarTexto}>Pagar</Text>
-          </TouchableOpacity>
+          {total > 0 && saldo >= total && (
+            <TouchableOpacity style={styles.botaoPagar} onPress={gerarQR}>
+              <Text style={styles.textoPagar}>Pagar</Text>
+            </TouchableOpacity>
+          )}
 
-          <TouchableOpacity
-            style={[styles.pagarBotao, { backgroundColor: "#999" }]}
-            onPress={() => setMostrarCarrinho(false)}
-          >
-            <Text style={styles.pagarTexto}>Voltar</Text>
-          </TouchableOpacity>
+          {total > saldo && (
+            <Text style={styles.erroSaldo}>Saldo insuficiente!</Text>
+          )}
         </View>
-      )}
+      </ScrollView>
 
-      {pedidoQRCode && (
-        <View style={{ alignItems: "center", marginTop: 20 }}>
-          <Text style={{ marginBottom: 10, fontSize: 18 }}>
-            QR Code do Pedido:
-          </Text>
-          <QRCode value={pedidoQRCode} size={200} />
+      {/* MODAL DO QR CODE */}
+      <Modal visible={mostrarQR} transparent animationType="fade">
+        <View style={styles.modalFundo}>
+          <View style={styles.modalBox}>
+            
+            {/* Botão X */}
+            <TouchableOpacity style={styles.botaoFechar} onPress={() => setMostrarQR(false)}>
+              <Text style={styles.textoFechar}>X</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.modalTitulo}>QR Code do Pedido:</Text>
+
+            <QRCode size={220} value={`Pedido: ${Date.now()}`} />
+          </View>
         </View>
-      )}
+      </Modal>
+
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 40, paddingHorizontal: 20, backgroundColor: "#fff" },
-  titulo: { fontSize: 24, fontWeight: "bold", textAlign: "center" },
-  saldo: { fontSize: 18, color: "green", textAlign: "center", marginBottom: 15 },
-
-  addSaldoBotao: {
-    backgroundColor: "#4caf50",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 20,
+  container: {
+    flex: 1,
+    backgroundColor: "#f7931a",
+    padding: 20,
   },
-  addSaldoTexto: {
-    color: "#fff",
-    fontSize: 16,
+  titulo: {
+    fontSize: 32,
     fontWeight: "bold",
-    textAlign: "center",
-  },
-
-  item: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    padding: 15,
-    marginVertical: 8,
-    backgroundColor: "#eee",
-    borderRadius: 8,
-  },
-
-  nome: { fontSize: 18, fontWeight: "bold" },
-  preco: { fontSize: 16 },
-
-  botao: {
-    backgroundColor: "#2196f3",
-    padding: 10,
-    borderRadius: 8,
-  },
-
-  textoBotao: { color: "#fff" },
-
-  carrinhoBotao: {
-    backgroundColor: "#ff9800",
-    padding: 12,
-    borderRadius: 8,
     marginTop: 10,
   },
-  carrinhoTexto: { color: "#fff", textAlign: "center", fontWeight: "bold" },
-
-  carrinhoContainer: { padding: 20, backgroundColor: "#f8f8f8", borderRadius: 10 },
-  carrinhoTitulo: { fontSize: 22, fontWeight: "bold" },
-  carrinhoItem: { fontSize: 16, marginTop: 5 },
-  total: { fontSize: 18, marginTop: 20, fontWeight: "bold" },
-
-  pagarBotao: {
-    backgroundColor: "green",
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 20,
-  },
-
-  pagarTexto: {
-    color: "#fff",
+  saldo: {
+    fontSize: 20,
     textAlign: "center",
+    marginVertical: 10,
+    fontWeight: "bold",
+  },
+  botaoAdd: {
+    backgroundColor: "#000",
+    padding: 15,
+    borderRadius: 15,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  textoBotaoAdd: {
+    fontSize: 18,
+    color: "#fff",
+  },
+  card: {
+    backgroundColor: "#fff",
+    padding: 20,
+    marginVertical: 10,
+    borderRadius: 15,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  nomeProduto: {
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  precoProduto: {
+    fontSize: 16,
+    color: "#555",
+  },
+  botaoAddCarrinho: {
+    backgroundColor: "#000",
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+  },
+  textoAdd: {
+    color: "#fff",
+    fontSize: 16,
+  },
+  boxCarrinho: {
+    backgroundColor: "#fff",
+    padding: 20,
+    marginTop: 30,
+    borderRadius: 20,
+  },
+  tituloCarrinho: {
+    fontSize: 26,
+    fontWeight: "bold",
+  },
+  scrollCarrinho: {
+    maxHeight: 200, // ← AGORA O CARRINHO ROLA!
+    marginVertical: 10,
+  },
+  itemCarrinho: {
+    fontSize: 18,
+    marginBottom: 5,
+  },
+  total: {
+    fontSize: 22,
+    fontWeight: "bold",
+    marginTop: 10,
+  },
+  botaoPagar: {
+    backgroundColor: "#28a745",
+    padding: 15,
+    marginTop: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  textoPagar: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  erroSaldo: {
+    color: "red",
+    marginTop: 10,
     fontSize: 16,
     fontWeight: "bold",
+  },
+
+  /* MODAL */
+  modalFundo: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalBox: {
+    backgroundColor: "#fff",
+    padding: 25,
+    borderRadius: 20,
+    alignItems: "center",
+  },
+  modalTitulo: {
+    fontSize: 20,
+    marginBottom: 15,
+  },
+  botaoFechar: {
+    position: "absolute",
+    right: 10,
+    top: 10,
+    backgroundColor: "#000",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  textoFechar: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });
