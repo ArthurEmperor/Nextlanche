@@ -57,7 +57,7 @@ export default function SobreScreens() {
           <Text style={styles.cardTitulo}>Versão Atual</Text>
           <Text style={styles.cardTexto}>Aplicativo versão 1.0.0</Text>
           <Text style={styles.cardTexto}>
-            Construído utilizando React Native e voltado para alto desempenho,
+            Feito utilizando React Native e voltado para alto desempenho,
             estabilidade e experiência do usuário.
           </Text>
         </View>

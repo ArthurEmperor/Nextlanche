@@ -153,7 +153,6 @@ export default function PerfilScreens() {
   );
 }
 
-// ================= ESTILOS =================
 
 const styles = StyleSheet.create({
   container: {

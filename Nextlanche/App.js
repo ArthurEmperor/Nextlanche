@@ -132,7 +132,7 @@ function DrawerMenu({ isAdmin }) {
         }}
       />
 
-      {/* Coloquei Config também no drawer para todos os usuários */}
+     
       <Drawer.Screen
         name="Config"
         component={Config}
@@ -180,14 +180,14 @@ export default function App() {
       if (data.session?.user) checkAdmin(data.session.user.id);
     });
 
-    // observa mudanças de auth
+    // vê mudanças de auth
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session?.user) checkAdmin(session.user.id);
       else setIsAdmin(false);
     });
 
-    // cleanup
+    
     return () => sub.subscription?.unsubscribe?.();
   }, []);
 
