@@ -23,16 +23,15 @@ import Config from "./screens/Config";
 
 import { CartProvider } from "./screens/Usercontext";
 
-// Navigators
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
 
-/* Tela da cantina*/
 function CantinaStack() {
   return (
     <Stack.Navigator>
+      {/* Tela inicial da Cantina */}
       <Stack.Screen
-        name="Cardápio"
+        name="Cardapio" // interno do stack da cantina
         component={CantinaScreens}
         options={{ headerShown: false }}
       />
@@ -50,7 +49,6 @@ function CantinaStack() {
   );
 }
 
-/*tela do admin*/
 function AdminStack() {
   return (
     <Stack.Navigator>
@@ -74,6 +72,7 @@ function AdminStack() {
         component={Usuarios}
         options={{ title: "Gerenciar Usuários" }}
       />
+      {/* Mantive Config aqui também — é seguro ter em ambos */}
       <Stack.Screen
         name="Config"
         component={Config}
@@ -83,20 +82,17 @@ function AdminStack() {
   );
 }
 
-/* =====================================================
-    MENU LATERAL
-===================================================== */
 function DrawerMenu({ isAdmin }) {
   return (
     <Drawer.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: "#2196f3" },
+        headerStyle: { backgroundColor: "#FF8A00" },
         headerTintColor: "#fff",
-        drawerActiveTintColor: "#2196f3",
+        drawerActiveTintColor: "#FF8A00",
       }}
     >
       <Drawer.Screen
-        name="Início"
+        name="Home"
         component={HomeScreens}
         options={{
           drawerIcon: ({ color, size }) => (
@@ -105,6 +101,7 @@ function DrawerMenu({ isAdmin }) {
         }}
       />
 
+      {/* A rota "Cantina" leva ao CantinaStack */}
       <Drawer.Screen
         name="Cantina"
         component={CantinaStack}
@@ -116,7 +113,7 @@ function DrawerMenu({ isAdmin }) {
       />
 
       <Drawer.Screen
-        name="Histórico"
+        name="Historico"
         component={HistoricoScreens}
         options={{
           drawerIcon: ({ color, size }) => (
@@ -135,6 +132,17 @@ function DrawerMenu({ isAdmin }) {
         }}
       />
 
+      {/* Coloquei Config também no drawer para todos os usuários */}
+      <Drawer.Screen
+        name="Config"
+        component={Config}
+        options={{
+          drawerIcon: ({ color, size }) => (
+            <FontAwesome name="cog" color={color} size={size} />
+          ),
+        }}
+      />
+
       <Drawer.Screen
         name="Sobre"
         component={SobreScreens}
@@ -145,7 +153,7 @@ function DrawerMenu({ isAdmin }) {
         }}
       />
 
-      {/* APARECE SÓ SE FOR ADMIN */}
+      {/* ROTA ADMIN: só aparece se isAdmin true */}
       {isAdmin && (
         <Drawer.Screen
           name="Admin"
@@ -161,35 +169,40 @@ function DrawerMenu({ isAdmin }) {
   );
 }
 
-/* =====================================================
-    APP PRINCIPAL
-===================================================== */
 export default function App() {
   const [session, setSession] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    // pega sessão inicial
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
-
       if (data.session?.user) checkAdmin(data.session.user.id);
     });
 
-    supabase.auth.onAuthStateChange((_event, session) => {
+    // observa mudanças de auth
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-
       if (session?.user) checkAdmin(session.user.id);
+      else setIsAdmin(false);
     });
+
+    // cleanup
+    return () => sub.subscription?.unsubscribe?.();
   }, []);
 
   async function checkAdmin(userId) {
-    const { data } = await supabase
-      .from("usuarios")
-      .select("tipo")
-      .eq("id", userId)
-      .single();
-
-    setIsAdmin(data?.tipo === "admin");
+    try {
+      const { data } = await supabase
+        .from("usuarios")
+        .select("tipo")
+        .eq("id", userId)
+        .single();
+      setIsAdmin(data?.tipo === "admin");
+    } catch (e) {
+      console.log("checkAdmin erro:", e);
+      setIsAdmin(false);
+    }
   }
 
   return (
@@ -200,7 +213,7 @@ export default function App() {
             <Stack.Screen name="Login" component={LoginScreens} />
           ) : (
             <Stack.Screen name="MainApp">
-              {() => <DrawerMenu key={isAdmin} isAdmin={isAdmin} />}
+              {() => <DrawerMenu key={isAdmin ? "admin" : "user"} isAdmin={isAdmin} />}
             </Stack.Screen>
           )}
         </Stack.Navigator>

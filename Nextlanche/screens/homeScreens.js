@@ -1,41 +1,61 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+import FontAwesome from "react-native-vector-icons/FontAwesome";
 
-export default function HomeScreen() {
+export default function HomeScreens({ navigation }) {
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={styles.headerContainer}>
         <Text style={styles.titulo}>Home</Text>
         <Text style={styles.subtitulo}>Bem-vindo à sua área principal</Text>
       </View>
 
-      {/* CARD PRINCIPAL */}
       <View style={styles.card}>
-        <Text style={styles.cardTitulo}>Explorar Recursos</Text>
+        <View style={styles.cardHeader}>
+          <FontAwesome name="star" size={26} color="#000" />
+          <Text style={styles.cardTitulo}>Explorar Recursos</Text>
+        </View>
+
         <Text style={styles.cardTexto}>
           Aqui você pode acessar todas as funcionalidades do aplicativo.
         </Text>
 
-        <TouchableOpacity style={styles.botao}>
+        <TouchableOpacity
+          style={styles.botao}
+          onPress={() => navigation.navigate("Sobre")}
+        >
           <Text style={styles.textoBotao}>Explorar</Text>
         </TouchableOpacity>
       </View>
 
-      {/* OUTROS CARDS OPCIONAIS */}
       <View style={styles.card}>
-        <Text style={styles.cardTitulo}>Cantina</Text>
+        <View style={styles.cardHeader}>
+          <FontAwesome name="cutlery" size={26} color="#000" />
+          <Text style={styles.cardTitulo}>Cantina</Text>
+        </View>
+
         <Text style={styles.cardTexto}>Acesse o sistema da cantina.</Text>
 
-        <TouchableOpacity style={styles.botao}>
+        <TouchableOpacity
+          style={styles.botao}
+          onPress={() => navigation.navigate("Cantina")}
+        >
           <Text style={styles.textoBotao}>Ir para Cantina</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitulo}>Configurações</Text>
+        <View style={styles.cardHeader}>
+          <FontAwesome name="cog" size={26} color="#000" />
+          <Text style={styles.cardTitulo}>Configurações</Text>
+        </View>
+
         <Text style={styles.cardTexto}>Ajuste preferências da sua conta.</Text>
 
-        <TouchableOpacity style={styles.botao}>
+        <TouchableOpacity
+          style={styles.botao}
+          onPress={() => navigation.navigate("Config")}
+        >
           <Text style={styles.textoBotao}>Abrir Configurações</Text>
         </TouchableOpacity>
       </View>
@@ -46,7 +66,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F7931E", // Laranja igual à Cantina
+    backgroundColor: "#F7931E",
     paddingHorizontal: 20,
   },
 
@@ -75,10 +95,16 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
 
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    gap: 10,
+  },
+
   cardTitulo: {
     fontSize: 22,
     fontWeight: "bold",
-    marginBottom: 10,
   },
 
   cardTexto: {

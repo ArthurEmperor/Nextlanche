@@ -38,15 +38,7 @@ export default function AdminPanel({ navigation }) {
         <Text style={styles.textoBotao}>Usuários</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.botao}
-        onPress={() => navigation.navigate("Config")}
-      >
-        <View style={styles.iconBox}>
-          <FontAwesome name="cogs" size={24} color="#000" />
-        </View>
-        <Text style={styles.textoBotao}>Configurações</Text>
-      </TouchableOpacity>
+      {/* BOTÃO REMOVIDO: CONFIGURAÇÕES */}
 
       <TouchableOpacity
         style={[styles.botao, styles.botaoSair]}
@@ -94,10 +86,6 @@ const styles = StyleSheet.create({
     width: "100%",
     marginBottom: 20,
     elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
   },
 
   iconBox: {
