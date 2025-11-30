@@ -118,7 +118,7 @@ export default function CantinaScreen() {
       return;
     }
 
-    // tenta atualizar saldo no usuário (se existir coluna 'saldo' na tabela usuarios)
+    
     try {
       const { data: udata, error: uerr } = await supabase
         .from("usuarios")
@@ -131,15 +131,15 @@ export default function CantinaScreen() {
         await supabase.from("usuarios").update({ saldo: novoSaldo }).eq("id", alunoId);
         setSaldo(novoSaldo);
       } else {
-        // se tabela/coluna não existir, só atualiza o saldo local
+       
         setSaldo((s) => Number(s) - Number(total));
       }
     } catch (e) {
-      // se falhar aqui, mantemos apenas o saldo local atualizado
+      // se falhar aqui,o saldo local continua atualizado blz?
       setSaldo((s) => Number(s) - Number(total));
     }
 
-    // mostrar QR, limpar carrinho
+    // mostrar QR, e limpar carrinho
     setMostrarQR(true);
     setCarrinho([]);
     setLoadingCompra(false);
@@ -164,7 +164,7 @@ export default function CantinaScreen() {
             const { data: userData, error: userError } = await supabase.auth.getUser();
             if (!userError && userData?.user) {
               const id = userData.user.id;
-              // tenta atualizar coluna saldo (se existir)
+      
               try {
                 const { data: udata, error: uerr } = await supabase
                   .from("usuarios")

@@ -19,28 +19,6 @@ export default function AdminPanel({ navigation }) {
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={styles.botao}
-        onPress={() => navigation.navigate("Pedidos")}
-      >
-        <View style={styles.iconBox}>
-          <FontAwesome name="archive" size={24} color="#000" />
-        </View>
-        <Text style={styles.textoBotao}>Pedidos</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.botao}
-        onPress={() => navigation.navigate("Usuarios")}
-      >
-        <View style={styles.iconBox}>
-          <FontAwesome name="users" size={24} color="#000" />
-        </View>
-        <Text style={styles.textoBotao}>Usuários</Text>
-      </TouchableOpacity>
-
-      {/* BOTÃO REMOVIDO: CONFIGURAÇÕES */}
-
-      <TouchableOpacity
         style={[styles.botao, styles.botaoSair]}
         onPress={() => navigation.goBack()}
       >
