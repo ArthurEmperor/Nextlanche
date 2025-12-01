@@ -33,6 +33,7 @@ export default function SobreScreens() {
           <Text style={styles.nomeDev}>• Arthur</Text>
           <Text style={styles.nomeDev}>• Robson</Text>
           <Text style={styles.nomeDev}>• João Guilherme</Text>
+          <Text style={styles.nomeDev}>• laís</Text>
         </View>
       </View>
 
