@@ -8,6 +8,7 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  Alert,
 } from "react-native";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import * as ImagePicker from "expo-image-picker";
@@ -24,6 +25,12 @@ export default function PerfilScreens() {
 
   const [modalVisible, setModalVisible] = useState(false);
 
+  // NOVO — forma de pagamento padrão (local)
+  const [payModalVisible, setPayModalVisible] = useState(false);
+  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState("pix"); // "pix" | "card"
+  const [savedPixKey, setSavedPixKey] = useState("");
+  const [savedCardLast4, setSavedCardLast4] = useState("");
+
   // Escolher foto
   async function escolherFoto() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -36,6 +43,12 @@ export default function PerfilScreens() {
     if (!result.canceled) {
       setFoto(result.assets[0].uri);
     }
+  }
+
+  function savePaymentSettings() {
+    // atualmente salva só no estado local;
+    setPayModalVisible(false);
+    Alert.alert("Salvo", "Configuração de pagamento salva localmente.");
   }
 
   return (
@@ -77,9 +90,19 @@ export default function PerfilScreens() {
           <Text style={styles.label}>Bio:</Text>
           <Text style={styles.info}>{bio || "Escreva algo sobre você..."}</Text>
         </View>
+
+        {/* NOVO: forma de pagamento padrão */}
+        <View style={{ marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#222" }}>
+          <Text style={{ color: "#ddd", fontWeight: "bold", marginBottom: 6 }}>Forma de pagamento padrão</Text>
+          <Text style={{ color: "#ccc", marginBottom: 8 }}>{defaultPaymentMethod === "pix" ? `PIX — ${savedPixKey || "sem chave"}` : `Cartão — ${savedCardLast4 ? `**** ${savedCardLast4}` : "sem cartão"}`}</Text>
+          <TouchableOpacity style={[styles.botaoEditar, { backgroundColor: "#333" }]} onPress={() => setPayModalVisible(true)}>
+            <FontAwesome name="credit-card" size={18} color="#000" />
+            <Text style={[styles.textoEditar, { color: "#fff", marginLeft: 8 }]}>Editar forma de pagamento</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* BOTÃO EDITAR */}
+      {/* BOTÃO EDITAR PERFIL */}
       <TouchableOpacity
         style={styles.botaoEditar}
         onPress={() => setModalVisible(true)}
@@ -94,7 +117,7 @@ export default function PerfilScreens() {
         <Text style={styles.textoSair}>Sair da Conta</Text>
       </TouchableOpacity>
 
-      {/* MODAL DE EDIÇÃO */}
+      {/* MODAL DE EDIÇÃO DO PERFIL */}
       <Modal animationType="slide" transparent={true} visible={modalVisible}>
         <View style={styles.modalBg}>
           <View style={styles.modalContent}>
@@ -149,10 +172,47 @@ export default function PerfilScreens() {
           </View>
         </View>
       </Modal>
+
+      {/* MODAL: Editar forma de pagamento (local) */}
+      <Modal animationType="slide" transparent={true} visible={payModalVisible}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitulo}>Forma de pagamento</Text>
+
+            <View style={{ flexDirection: "row", marginBottom: 12 }}>
+              <TouchableOpacity onPress={() => setDefaultPaymentMethod("pix")} style={[styles.payChip, defaultPaymentMethod === "pix" && styles.payChipActive]}>
+                <Text style={defaultPaymentMethod === "pix" ? { fontWeight: "bold" } : {}}>PIX</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setDefaultPaymentMethod("card")} style={[styles.payChip, defaultPaymentMethod === "card" && styles.payChipActive]}>
+                <Text style={defaultPaymentMethod === "card" ? { fontWeight: "bold" } : {}}>Cartão</Text>
+              </TouchableOpacity>
+            </View>
+
+            {defaultPaymentMethod === "pix" ? (
+              <>
+                <Text style={{ color: "#ccc", marginBottom: 6 }}>Chave PIX (opcional)</Text>
+                <TextInput placeholder="chave@example.com / CPF / Celular" value={savedPixKey} onChangeText={setSavedPixKey} style={styles.input} />
+              </>
+            ) : (
+              <>
+                <Text style={{ color: "#ccc", marginBottom: 6 }}>Salvar cartão (fictício)</Text>
+                <TextInput placeholder="Últimos 4 dígitos" value={savedCardLast4} onChangeText={setSavedCardLast4} style={styles.input} keyboardType="numeric" maxLength={4} />
+              </>
+            )}
+
+            <TouchableOpacity style={styles.botaoSalvar} onPress={savePaymentSettings}>
+              <Text style={styles.textoSalvar}>Salvar</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.botaoCancelar} onPress={() => setPayModalVisible(false)}>
+              <Text style={styles.textoCancelar}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
@@ -308,4 +368,7 @@ const styles = StyleSheet.create({
     color: "#ccc",
     fontSize: 16,
   },
+
+  payChip: { padding: 10, backgroundColor: "#333", borderRadius: 8, marginRight: 8 },
+  payChipActive: { backgroundColor: "#ff8c00" },
 });

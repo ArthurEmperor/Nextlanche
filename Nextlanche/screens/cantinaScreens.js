@@ -9,6 +9,8 @@ import {
   Image,
   RefreshControl,
   Alert,
+  TextInput,
+  ActivityIndicator,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { supabase } from "../services/supabase";
@@ -20,6 +22,17 @@ export default function CantinaScreen() {
   const [produtos, setProdutos] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingCompra, setLoadingCompra] = useState(false);
+
+  // NOVO: modal de pagamento
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState("pix"); // "pix" | "card"
+  const [pixKey, setPixKey] = useState(""); // chave/pix informada pelo usuário (opcional)
+  const [pixCode, setPixCode] = useState(""); // código gerado para copiar
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardName, setCardName] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCvv, setCardCvv] = useState("");
+  const [processingPayment, setProcessingPayment] = useState(false);
 
   async function carregarProdutos() {
     setRefreshing(true);
@@ -71,31 +84,20 @@ export default function CantinaScreen() {
 
   const total = carrinho.reduce((acc, item) => acc + Number(item.preco || 0), 0);
 
-  async function finalizarCompra() {
-    // validações básicas
-    if (carrinho.length === 0) {
-      Alert.alert("Carrinho vazio", "Adicione itens antes de pagar.");
-      return;
-    }
-
-    // pega usuário autenticado
+  // função que registra a transação e atualiza saldo (reaproveita lógica original)
+  async function registrarTransacaoEMudarSaldo() {
     setLoadingCompra(true);
+
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData?.user) {
       setLoadingCompra(false);
       Alert.alert("Login necessário", "Você precisa estar logado para finalizar a compra.");
-      return;
+      return { success: false, msg: "no-user" };
     }
     const alunoId = userData.user.id;
 
-    // checa saldo local (se você usa saldo local)
-    if (Number(saldo) < Number(total)) {
-      setLoadingCompra(false);
-      Alert.alert("Saldo insuficiente", "Adicione saldo antes de pagar.");
-      return;
-    }
-
-    // cria transação no banco
+    // checar saldo no servidor (se existir) - conforme original
+    // aqui já assumimos que o pagamento foi "feito" (simulação) — então gravamos a transação
     const transacao = {
       aluno_id: alunoId,
       tipo: "compra",
@@ -114,11 +116,10 @@ export default function CantinaScreen() {
     if (insertError) {
       console.log("Erro ao criar transacao:", insertError);
       setLoadingCompra(false);
-      Alert.alert("Erro", "Não foi possível registrar a compra.");
-      return;
+      return { success: false, msg: "insert-fail", error: insertError };
     }
 
-    
+    // tentar atualizar saldo na tabela usuarios (se existir)
     try {
       const { data: udata, error: uerr } = await supabase
         .from("usuarios")
@@ -131,19 +132,87 @@ export default function CantinaScreen() {
         await supabase.from("usuarios").update({ saldo: novoSaldo }).eq("id", alunoId);
         setSaldo(novoSaldo);
       } else {
-       
         setSaldo((s) => Number(s) - Number(total));
       }
     } catch (e) {
-      // se falhar aqui,o saldo local continua atualizado blz?
       setSaldo((s) => Number(s) - Number(total));
     }
 
-    // mostrar QR, e limpar carrinho
-    setMostrarQR(true);
-    setCarrinho([]);
     setLoadingCompra(false);
-    Alert.alert("Compra registrada", "Pagamento aprovado e transação gravada.");
+    return { success: true, data: insertData };
+  }
+
+  // chamada quando usuário confirma pagamento na modal
+  async function handleConfirmPayment() {
+    if (processingPayment) return;
+    setProcessingPayment(true);
+
+    // validação simples para cada forma
+    if (paymentMethod === "pix") {
+      // gerar código PIX se não gerado
+      const code = pixCode || `PIX|VAL:${total}|AT:${Date.now()}`;
+      setPixCode(code);
+      // aqui a "simulação" é: usuário copia e cola / efetua pagamento externamente
+      // vamos considerar confirmado por clique em "Confirmar pagamento"
+      // (no mundo real você validaria via webhook de cobrança)
+      // espera um pouquinho pra simular rede
+      await new Promise((r) => setTimeout(r, 700));
+      // prosseguir com gravação
+      const result = await registrarTransacaoEMudarSaldo();
+      setProcessingPayment(false);
+      setPaymentModalVisible(false);
+
+      if (result.success) {
+        setMostrarQR(true);
+        setCarrinho([]);
+        Alert.alert("Sucesso", "Pagamento via PIX confirmado e compra registrada.");
+      } else {
+        Alert.alert("Erro", "Não foi possível registrar a compra.");
+      }
+      return;
+    }
+
+    if (paymentMethod === "card") {
+      // validar campos mínimos
+      if (!cardNumber || cardNumber.length < 12 || !cardName || !cardExpiry) {
+        setProcessingPayment(false);
+        Alert.alert("Dados inválidos", "Preencha os dados do cartão (fictício).");
+        return;
+      }
+
+      // simular processamento do cartão
+      await new Promise((r) => setTimeout(r, 1000));
+      // sucesso simulado
+      const result = await registrarTransacaoEMudarSaldo();
+      setProcessingPayment(false);
+      setPaymentModalVisible(false);
+
+      if (result.success) {
+        setMostrarQR(true);
+        setCarrinho([]);
+        Alert.alert("Sucesso", "Pagamento com cartão (fictício) confirmado e compra registrada.");
+      } else {
+        Alert.alert("Erro", "Não foi possível registrar a compra.");
+      }
+      return;
+    }
+
+    setProcessingPayment(false);
+  }
+
+  // quando usuário clica no botão pagar, abrimos o modal de pagamento (em vez de finalizar direto)
+  function openPaymentModal() {
+    if (carrinho.length === 0) {
+      Alert.alert("Carrinho vazio", "Adicione itens antes de pagar.");
+      return;
+    }
+    setPaymentMethod("pix");
+    setCardNumber("");
+    setCardName("");
+    setCardExpiry("");
+    setCardCvv("");
+    setPixCode(""); // será gerado ao solicitar
+    setPaymentModalVisible(true);
   }
 
   return (
@@ -160,11 +229,9 @@ export default function CantinaScreen() {
         <TouchableOpacity
           style={styles.botaoAdd}
           onPress={async () => {
-            // adiciona saldo local e tenta atualizar no banco se possível
             const { data: userData, error: userError } = await supabase.auth.getUser();
             if (!userError && userData?.user) {
               const id = userData.user.id;
-      
               try {
                 const { data: udata, error: uerr } = await supabase
                   .from("usuarios")
@@ -178,9 +245,7 @@ export default function CantinaScreen() {
                   setSaldo(novo);
                   return;
                 }
-              } catch (e) {
-                // ignore e segue pro local
-              }
+              } catch (e) {}
             }
             setSaldo((s) => Number(s) + 5);
           }}
@@ -235,7 +300,7 @@ export default function CantinaScreen() {
           <Text style={styles.total}>Total: R$ {Number(total).toFixed(2)}</Text>
 
           {total > 0 && Number(saldo) >= total && (
-            <TouchableOpacity style={styles.botaoPagar} onPress={finalizarCompra} disabled={loadingCompra}>
+            <TouchableOpacity style={styles.botaoPagar} onPress={openPaymentModal} disabled={loadingCompra}>
               <Text style={styles.textoPagar}>{loadingCompra ? "Processando..." : "Pagar"}</Text>
             </TouchableOpacity>
           )}
@@ -244,6 +309,84 @@ export default function CantinaScreen() {
         </View>
       </ScrollView>
 
+      {/* MODAL: pagamento */}
+      <Modal visible={paymentModalVisible} transparent animationType="slide">
+        <View style={styles.paymentModalBg}>
+          <View style={styles.paymentModalBox}>
+            <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10 }}>Escolha a forma de pagamento</Text>
+
+            <View style={{ flexDirection: "row", marginBottom: 12 }}>
+              <TouchableOpacity
+                style={[styles.payOption, paymentMethod === "pix" && styles.payOptionActive]}
+                onPress={() => setPaymentMethod("pix")}
+              >
+                <Text style={paymentMethod === "pix" ? styles.payOptionTextActive : styles.payOptionText}>PIX (Copia & Cola)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.payOption, paymentMethod === "card" && styles.payOptionActive]}
+                onPress={() => setPaymentMethod("card")}
+              >
+                <Text style={paymentMethod === "card" ? styles.payOptionTextActive : styles.payOptionText}>Cartão (fictício)</Text>
+              </TouchableOpacity>
+            </View>
+
+            {paymentMethod === "pix" && (
+              <>
+                <Text style={{ marginBottom: 6 }}>Chave PIX (opcional):</Text>
+                <TextInput
+                  placeholder="chave@email.com / CPF / Celular"
+                  value={pixKey}
+                  onChangeText={setPixKey}
+                  style={styles.input}
+                />
+                <TouchableOpacity
+                  style={[styles.generatePixBtn]}
+                  onPress={() => {
+                    const code = `PIX|VAL:${Number(total).toFixed(2)}|TO:${pixKey || "LOJA"}|AT:${Date.now()}`;
+                    setPixCode(code);
+                    Alert.alert("PIX gerado", "Código PIX gerado para copiar.");
+                  }}
+                >
+                  <Text style={{ color: "#fff" }}>Gerar código PIX</Text>
+                </TouchableOpacity>
+
+                {pixCode ? (
+                  <>
+                    <Text style={{ marginTop: 10, marginBottom: 6 }}>Código PIX (copiar):</Text>
+                    <View style={{ backgroundColor: "#f1f1f1", padding: 10, borderRadius: 8 }}>
+                      <Text selectable>{pixCode}</Text>
+                    </View>
+                  </>
+                ) : null}
+              </>
+            )}
+
+            {paymentMethod === "card" && (
+              <>
+                <TextInput placeholder="Número do cartão (fictício)" value={cardNumber} onChangeText={setCardNumber} style={styles.input} keyboardType="numeric" />
+                <TextInput placeholder="Nome impresso" value={cardName} onChangeText={setCardName} style={styles.input} />
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <TextInput placeholder="MM/AA" value={cardExpiry} onChangeText={setCardExpiry} style={[styles.input, { flex: 1 }]} />
+                  <TextInput placeholder="CVV" value={cardCvv} onChangeText={setCardCvv} style={[styles.input, { width: 80 }]} keyboardType="numeric" />
+                </View>
+              </>
+            )}
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 14 }}>
+              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: "#ccc" }]} onPress={() => setPaymentModalVisible(false)} disabled={processingPayment}>
+                <Text>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: "#28a745" }]} onPress={handleConfirmPayment} disabled={processingPayment}>
+                {processingPayment ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff" }}>Confirmar pagamento</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL: QR */}
       <Modal visible={mostrarQR} transparent animationType="fade">
         <View style={styles.modalFundo}>
           <View style={styles.modalBox}>
@@ -292,4 +435,16 @@ const styles = StyleSheet.create({
   modalTitulo: { fontSize: 20, marginBottom: 15 },
   botaoFechar: { position: "absolute", right: 10, top: 10, backgroundColor: "#000", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 },
   textoFechar: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+
+  // payment modal
+  paymentModalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
+  paymentModalBox: { backgroundColor: "#fff", width: "90%", padding: 18, borderRadius: 12 },
+  payOption: { padding: 10, borderRadius: 8, marginRight: 8, backgroundColor: "#eee" },
+  payOptionActive: { backgroundColor: "#ffecdf" },
+  payOptionText: { color: "#333" },
+  payOptionTextActive: { color: "#000", fontWeight: "bold" },
+  input: { backgroundColor: "#f1f1f1", padding: 10, borderRadius: 8, marginBottom: 10 },
+  generatePixBtn: { backgroundColor: "#2196f3", padding: 10, borderRadius: 8, alignItems: "center", marginBottom: 6 },
+  modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, justifyContent: "center", alignItems: "center" },
+
 });
