@@ -34,12 +34,12 @@ export default function CantinaScreen() {
   const [cardCvv, setCardCvv] = useState("");
   const [processingPayment, setProcessingPayment] = useState(false);
 
-  // --- NOVO: tickets ---
-  const [modalTicketVisible, setModalTicketVisible] = useState(false); // modal para gerar ticket grátis
-  const [modalEscolherTicketVisible, setModalEscolherTicketVisible] = useState(false); // modal para escolher ticket a aplicar na compra
-  const [meusTickets, setMeusTickets] = useState([]); // tickets ativos do usuário
-  const [selectedTicket, setSelectedTicket] = useState(null); // ticket selecionado para aplicar na compra
-  const [selectedTicketProdutoId, setSelectedTicketProdutoId] = useState(null); // produto que o ticket cobre (padrão vem do ticket.produto_id)
+  // Tickets
+  const [modalEscolherTicketVisible, setModalEscolherTicketVisible] = useState(false);
+  const [meusTickets, setMeusTickets] = useState([]);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [selectedTicketProdutoId, setSelectedTicketProdutoId] = useState(null);
+  const [loadingTickets, setLoadingTickets] = useState(false);
 
   // Carregar produtos
   async function carregarProdutos() {
@@ -59,8 +59,80 @@ export default function CantinaScreen() {
     setProdutos(data || []);
   }
 
+  // Carregar saldo do usuário
+  async function carregarSaldo() {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) return;
+
+      const { data: usuarioData } = await supabase
+        .from("usuarios")
+        .select("saldo")
+        .eq("id", userData.user.id)
+        .single();
+
+      if (usuarioData) {
+        setSaldo(Number(usuarioData.saldo) || 0);
+      }
+    } catch (error) {
+      console.log("Erro ao carregar saldo:", error);
+    }
+  }
+
+  // CARREGAR TICKETS ATIVOS DO USUÁRIO - VERSÃO CORRIGIDA
+  async function carregarTicketsAtivos() {
+    try {
+      setLoadingTickets(true);
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !userData?.user) {
+        console.log("Usuário não autenticado");
+        setMeusTickets([]);
+        setLoadingTickets(false);
+        return;
+      }
+      
+      const usuarioId = userData.user.id;
+      console.log("Buscando tickets para usuário:", usuarioId);
+
+      // BUSCAR tickets onde usado = false (tickets ativos)
+      const { data, error } = await supabase
+        .from("tickets")
+        .select("*, produtos(nome, preco)")
+        .eq("usuario_id", usuarioId)
+        .eq("usado", false)  // IMPORTANTE: usado = false significa ticket ATIVO
+        .order("created_at", { ascending: true });
+
+      console.log("Resultado da busca de tickets:", {
+        quantidade: data?.length || 0,
+        error: error?.message,
+        usuarioId: usuarioId
+      });
+
+      if (error) {
+        console.log("Erro detalhado ao carregar tickets:", error);
+        Alert.alert(
+          "Erro", 
+          `Não foi possível carregar tickets: ${error.message}\n\n` +
+          "Verifique se as policies estão configuradas."
+        );
+        setMeusTickets([]);
+      } else {
+        console.log("Tickets carregados com sucesso:", data?.length || 0);
+        setMeusTickets(data || []);
+      }
+    } catch (e) {
+      console.log("Erro em carregarTicketsAtivos:", e);
+      setMeusTickets([]);
+    } finally {
+      setLoadingTickets(false);
+    }
+  }
+
   useEffect(() => {
     carregarProdutos();
+    carregarSaldo();
+    carregarTicketsAtivos();
 
     const channel = supabase
       .channel("public:produtos")
@@ -73,11 +145,21 @@ export default function CantinaScreen() {
       )
       .subscribe();
 
-    // também carregar tickets ativos se usuário mudar sessão
-    carregarTicketsAtivos();
+    // Canal para tickets também
+    const ticketsChannel = supabase
+      .channel("public:tickets")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets" },
+        () => {
+          carregarTicketsAtivos();
+        }
+      )
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(ticketsChannel);
     };
   }, []);
 
@@ -91,57 +173,13 @@ export default function CantinaScreen() {
 
   function limparCarrinho() {
     setCarrinho([]);
-    // ao limpar o carrinho removemos seleção de ticket para prevenir inconsistências
     setSelectedTicket(null);
     setSelectedTicketProdutoId(null);
   }
 
   const total = carrinho.reduce((acc, item) => acc + Number(item.preco || 0), 0);
 
-  // CARREGAR TICKETS ATIVOS DO USUÁRIO
-  async function carregarTicketsAtivos() {
-    try {
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError || !userData?.user) {
-        setMeusTickets([]);
-        return;
-      }
-      const usuarioId = userData.user.id;
-
-      // tenta buscar por coluna usuario_id ou aluno_id (compatibilidade)
-      // Primeiro tenta usar usuario_id
-      let res = await supabase
-        .from("tickets")
-        .select("*")
-        .eq("usuario_id", usuarioId)
-        .eq("status", "ativo")
-        .order("created_at", { ascending: true });
-
-      if (res.error || !res.data || res.data.length === 0) {
-        // tenta por aluno_id / ou usado boolean false
-        res = await supabase
-          .from("tickets")
-          .select("*")
-          .or(`aluno_id.eq.${usuarioId},usuario_id.eq.${usuarioId}`)
-          .in("status", ["ativo"])
-          .order("created_at", { ascending: true });
-      }
-
-      if (res.error) {
-        console.log("Erro ao carregar tickets (fallback):", res.error);
-        setMeusTickets([]);
-        return;
-      }
-
-      setMeusTickets(res.data || []);
-    } catch (e) {
-      console.log("Erro carregarTicketsAtivos:", e);
-      setMeusTickets([]);
-    }
-  }
-
-  // função reutilizável para criar transação e atualizar saldo e criar tickets para itens passados
-  // items = array de produtos que serão cobrados (EXCLUIR aqui o item grátis quando for usar ticket)
+  // FUNÇÃO CORRIGIDA para processar compras
   async function processarCompraComItems(items = [], usedTicket = null) {
     setLoadingCompra(true);
 
@@ -153,7 +191,6 @@ export default function CantinaScreen() {
     }
     const usuarioId = userData.user.id;
 
-    // valor cobrado é soma dos items recebidos (items deve já ter excluído o item que ficou grátis)
     const valorCobrado = items.reduce((acc, it) => acc + Number(it.preco || 0), 0);
 
     const transacao = {
@@ -165,7 +202,7 @@ export default function CantinaScreen() {
       ),
     };
 
-    // criar transacao
+    // Criar transação
     const { data: insertData, error: insertError } = await supabase
       .from("transacoes")
       .insert([transacao])
@@ -178,7 +215,7 @@ export default function CantinaScreen() {
       return { success: false, msg: "insert-fail", error: insertError };
     }
 
-    // atualizar saldo somente se valorCobrado > 0
+    // Atualizar saldo
     if (Number(valorCobrado) > 0) {
       try {
         const { data: udata, error: uerr } = await supabase
@@ -199,16 +236,17 @@ export default function CantinaScreen() {
       }
     }
 
-    // criar tickets de pickup para cada item cobrado (um ticket por item)
+    // Criar tickets de pickup para cada item cobrado (usado = false inicialmente)
     try {
       for (const item of items) {
+        const codigoUnico = `TICKET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const { error: ticketError } = await supabase.from("tickets").insert([
           {
             usuario_id: usuarioId,
             produto_id: item.id,
             transacao_id: insertData.id,
-            status: "ativo",
-            codigo: `TICKET|TX:${insertData.id}|PROD:${item.id}|AT:${Date.now()}`,
+            usado: false,  // IMPORTANTE: começa como não usado
+            codigo: codigoUnico,
           },
         ]);
         if (ticketError) {
@@ -219,12 +257,12 @@ export default function CantinaScreen() {
       console.log("Erro ao criar tickets dos items cobrados:", e);
     }
 
-    // se um ticket foi usado para dar um item grátis, atualizamos ele para 'usado' e linkamos a transacao
+    // Se um ticket foi usado para dar um item grátis, atualizamos ele para usado = true
     if (usedTicket && usedTicket.id) {
       try {
         const { error: updErr } = await supabase
           .from("tickets")
-          .update({ status: "usado", transacao_id: insertData.id })
+          .update({ usado: true, transacao_id: insertData.id })  // IMPORTANTE: usado = true
           .eq("id", usedTicket.id);
         if (updErr) console.log("Erro ao marcar ticket usado:", updErr);
       } catch (e) {
@@ -236,35 +274,25 @@ export default function CantinaScreen() {
     return { success: true, data: insertData };
   }
 
-  // chamada quando usuário confirma pagamento na modal
   async function handleConfirmPayment() {
     if (processingPayment) return;
     setProcessingPayment(true);
 
-    // se o usuário selecionou um ticket para aplicar:
+    // Se o usuário selecionou um ticket
     if (selectedTicket) {
-      // verifica se carrinho contém o produto coberto pelo ticket
-      const produtoGratisIndex = carrinho.findIndex((it) => String(it.id) === String(selectedTicket.produto_id));
-      if (produtoGratisIndex === -1) {
-        // se o ticket não tem produto_id associado (por ex, ticket genérico), permitir escolher um produto manualmente:
-        // se selectedTicketProdutoId estiver definido, usamos esse.
-        if (!selectedTicketProdutoId) {
-          Alert.alert("Erro", "Seu ticket não corresponde a nenhum produto no carrinho. Selecione um produto ou remova o ticket.");
-          setProcessingPayment(false);
-          return;
-        }
-      }
+      const produtoGratisIndex = carrinho.findIndex((it) => 
+        String(it.id) === String(selectedTicket.produto_id)
+      );
 
-      // construímos array de items que serão cobrados (excluimos o item gratuito apenas uma vez)
       const itemsParaCobrar = [...carrinho];
       let freeItem = null;
 
       if (produtoGratisIndex !== -1) {
-        // remover o item na posição produtoGratisIndex
         freeItem = itemsParaCobrar.splice(produtoGratisIndex, 1)[0];
       } else if (selectedTicketProdutoId) {
-        // procurar pelo id selecionado manualmente
-        const idx = itemsParaCobrar.findIndex((it) => String(it.id) === String(selectedTicketProdutoId));
+        const idx = itemsParaCobrar.findIndex((it) => 
+          String(it.id) === String(selectedTicketProdutoId)
+        );
         if (idx === -1) {
           Alert.alert("Erro", "Produto selecionado para o ticket não está no carrinho.");
           setProcessingPayment(false);
@@ -272,20 +300,22 @@ export default function CantinaScreen() {
         }
         freeItem = itemsParaCobrar.splice(idx, 1)[0];
       } else {
-        Alert.alert("Erro", "Não foi possível aplicar o ticket ao carrinho.");
+        Alert.alert("Erro", "Selecione um produto para aplicar o ticket.");
         setProcessingPayment(false);
         return;
       }
 
-      // PROCESSAR compra com itemsParaCobrar e marcar o ticket como usado
       const result = await processarCompraComItems(itemsParaCobrar, selectedTicket);
-
       setProcessingPayment(false);
       setPaymentModalVisible(false);
 
       if (result.success) {
-        // gerar QR contendo também info do item grátis
-        const qrPayload = { itens: [...itemsParaCobrar, { ...freeItem, preco: 0 }], total: itemsParaCobrar.reduce((acc, it) => acc + Number(it.preco || 0), 0), transacao_id: result.data.id, at: Date.now() };
+        const qrPayload = { 
+          itens: [...itemsParaCobrar, { ...freeItem, preco: 0 }], 
+          total: itemsParaCobrar.reduce((acc, it) => acc + Number(it.preco || 0), 0), 
+          transacao_id: result.data.id, 
+          at: Date.now() 
+        };
         setMostrarQR(true);
         setCarrinho([]);
         setSelectedTicket(null);
@@ -295,23 +325,26 @@ export default function CantinaScreen() {
       } else {
         Alert.alert("Erro", "Não foi possível registrar a compra com ticket.");
       }
-
       return;
     }
 
-    // Caso sem ticket selecionado: pagamento normal (mantive o seu fluxo original)
+    // Pagamento normal (sem ticket)
     if (paymentMethod === "pix") {
       const code = pixCode || `PIX|VAL:${total}|AT:${Date.now()}`;
       setPixCode(code);
       await new Promise((r) => setTimeout(r, 700));
 
-      // processar com todos os items do carrinho
       const result = await processarCompraComItems(carrinho, null);
       setProcessingPayment(false);
       setPaymentModalVisible(false);
 
       if (result.success) {
-        const qrPayload = { itens: carrinho, total: Number(total), transacao_id: result.data.id, at: Date.now() };
+        const qrPayload = { 
+          itens: carrinho, 
+          total: Number(total), 
+          transacao_id: result.data.id, 
+          at: Date.now() 
+        };
         setMostrarQR(true);
         setCarrinho([]);
         Alert.alert("Sucesso", "Pagamento via PIX confirmado e compra registrada.");
@@ -335,7 +368,12 @@ export default function CantinaScreen() {
       setPaymentModalVisible(false);
 
       if (result.success) {
-        const qrPayload = { itens: carrinho, total: Number(total), transacao_id: result.data.id, at: Date.now() };
+        const qrPayload = { 
+          itens: carrinho, 
+          total: Number(total), 
+          transacao_id: result.data.id, 
+          at: Date.now() 
+        };
         setMostrarQR(true);
         setCarrinho([]);
         Alert.alert("Sucesso", "Pagamento com cartão (fictício) confirmado e compra registrada.");
@@ -354,7 +392,6 @@ export default function CantinaScreen() {
       Alert.alert("Carrinho vazio", "Adicione itens antes de pagar.");
       return;
     }
-    // carregar tickets atuais para possibilitar aplicar na compra
     carregarTicketsAtivos();
     setPaymentMethod("pix");
     setCardNumber("");
@@ -365,51 +402,42 @@ export default function CantinaScreen() {
     setPaymentModalVisible(true);
   }
 
-  // --------- Gerar ticket grátis (insere um ticket ativo para o usuário) ----------
-  async function gerarTicketGratis(produto) {
-    try {
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError || !userData?.user) {
-        Alert.alert("Login necessário", "Faça login para receber um ticket grátis.");
-        return;
-      }
-      const usuarioId = userData.user.id;
-
-      // gera código único simples
-      const codigo = `FREE|${usuarioId.slice(0,6)}|PROD:${produto.id}|AT:${Date.now()}`;
-
-      const { data, error } = await supabase.from("tickets").insert([
-        {
-          usuario_id: usuarioId,        // coluna esperada conforme seu esquema
-          produto_id: produto.id,
-          codigo,
-          status: "ativo",
-          created_at: new Date(),
-        },
-      ]);
-
-      if (error) {
-        console.log("Erro insert tickets:", error);
-        Alert.alert("Erro", "Falha ao gerar ticket gratuito. Verifique policies no Supabase.");
-        return;
-      }
-
-      setModalTicketVisible(false);
-      Alert.alert("Ticket criado!", `Você ganhou 1 ticket de ${produto.nome}.`);
-      await carregarTicketsAtivos();
-    } catch (e) {
-      console.log("Erro gerarTicketGratis:", e);
-      Alert.alert("Erro", "Falha ao gerar ticket grátis.");
-    }
-  }
-
-  // ---------- Selecionar ticket para aplicar ----------
+  // Selecionar ticket para aplicar
   function aplicarTicketNaCompra(ticket) {
-    // ticket pode ter produto_id ou não; aqui definimos o produto alvo
     setSelectedTicket(ticket);
     setSelectedTicketProdutoId(ticket.produto_id || null);
     setModalEscolherTicketVisible(false);
     Alert.alert("Ticket selecionado", `Ticket ${ticket.codigo ?? ticket.id} selecionado.`);
+  }
+
+  // Função para criar um ticket de teste (DEBUG)
+  async function criarTicketTeste() {
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData?.user) {
+      Alert.alert("Não logado", "Faça login primeiro");
+      return;
+    }
+
+    const codigoTeste = `TESTE-${Date.now()}`;
+    const { data, error } = await supabase
+      .from("tickets")
+      .insert([
+        {
+          usuario_id: userData.user.id,
+          codigo: codigoTeste,
+          usado: false,
+          produto_id: produtos.length > 0 ? produtos[0].id : null,
+          created_at: new Date(),
+        },
+      ])
+      .select();
+
+    if (error) {
+      Alert.alert("Erro na criação", error.message);
+    } else {
+      Alert.alert("Sucesso", "Ticket de teste criado!");
+      await carregarTicketsAtivos();
+    }
   }
 
   return (
@@ -417,7 +445,14 @@ export default function CantinaScreen() {
       <ScrollView
         contentContainerStyle={{ paddingBottom: 50 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={async () => { await carregarProdutos(); await carregarTicketsAtivos(); }} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={async () => { 
+              await carregarProdutos(); 
+              await carregarTicketsAtivos(); 
+              await carregarSaldo();
+            }} 
+          />
         }
       >
         <Text style={styles.titulo}>Cantina</Text>
@@ -430,13 +465,13 @@ export default function CantinaScreen() {
             if (!userError && userData?.user) {
               const id = userData.user.id;
               try {
-                const { data: udata, error: uerr } = await supabase
+                const { data: udata } = await supabase
                   .from("usuarios")
                   .select("saldo")
                   .eq("id", id)
                   .single();
 
-                if (!uerr && udata && typeof udata.saldo !== "undefined") {
+                if (udata && typeof udata.saldo !== "undefined") {
                   const novo = Number(udata.saldo) + 5;
                   await supabase.from("usuarios").update({ saldo: novo }).eq("id", id);
                   setSaldo(novo);
@@ -450,7 +485,15 @@ export default function CantinaScreen() {
           <Text style={styles.textoBotaoAdd}>Adicionar R$ 5,00</Text>
         </TouchableOpacity>
 
-        {/* NOVO: botão para escolher/usar ticket na compra */}
+        {/* Botão para criar ticket de teste (DEBUG) */}
+        <TouchableOpacity
+          style={[styles.botaoAdd, { backgroundColor: "#FF9800", marginBottom: 10 }]}
+          onPress={criarTicketTeste}
+        >
+          <Text style={styles.textoBotaoAdd}>Criar Ticket Teste (Debug)</Text>
+        </TouchableOpacity>
+
+        {/* Botão para usar ticket */}
         <TouchableOpacity
           style={[styles.botaoAdd, { backgroundColor: "#6C63FF", marginBottom: 16 }]}
           onPress={async () => {
@@ -458,15 +501,24 @@ export default function CantinaScreen() {
             setModalEscolherTicketVisible(true);
           }}
         >
-          <Text style={styles.textoBotaoAdd}>Usar Ticket grátis (escolher)</Text>
+          <Text style={styles.textoBotaoAdd}>
+            {loadingTickets ? "Carregando tickets..." : "Usar Ticket grátis"}
+          </Text>
         </TouchableOpacity>
 
         {selectedTicket && (
           <View style={{ marginHorizontal: 8, marginBottom: 12, padding: 10, backgroundColor: "#fff", borderRadius: 8 }}>
             <Text style={{ fontWeight: "bold" }}>Ticket selecionado:</Text>
             <Text>{selectedTicket.codigo ?? selectedTicket.id}</Text>
-            <Text style={{ opacity: 0.7 }}>Cobrirá o produto ID: {selectedTicket.produto_id ?? selectedTicketProdutoId ?? "qualquer (escolha manual)"}</Text>
-            <TouchableOpacity onPress={() => { setSelectedTicket(null); setSelectedTicketProdutoId(null); }} style={{ marginTop: 6 }}>
+            <Text style={{ opacity: 0.7 }}>
+              Cobrirá o produto: {selectedTicket.produto_id ? 
+                (produtos.find(p => String(p.id) === String(selectedTicket.produto_id))?.nome || `ID: ${selectedTicket.produto_id}`) 
+                : "Selecione um produto"}
+            </Text>
+            <TouchableOpacity onPress={() => { 
+              setSelectedTicket(null); 
+              setSelectedTicketProdutoId(null); 
+            }} style={{ marginTop: 6 }}>
               <Text style={{ color: "#E53935" }}>Remover ticket</Text>
             </TouchableOpacity>
           </View>
@@ -548,28 +600,51 @@ export default function CantinaScreen() {
         <View style={styles.modalBg}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitulo}>Escolha um ticket para aplicar</Text>
-            <ScrollView style={{ maxHeight: 300, width: "100%" }}>
-              {meusTickets.length === 0 ? (
-                <Text style={{ padding: 12 }}>Nenhum ticket disponível.</Text>
-              ) : (
-                meusTickets.map((t) => {
-                  // tenta buscar nome do produto para legibilidade
-                  const produto = produtos.find((p) => String(p.id) === String(t.produto_id));
-                  return (
-                    <TouchableOpacity
-                      key={t.id}
-                      style={styles.ticketItem}
-                      onPress={() => aplicarTicketNaCompra(t)}
-                    >
-                      <Text style={{ fontWeight: "bold" }}>{t.codigo ?? t.id}</Text>
-                      <Text style={{ opacity: 0.7 }}>{produto ? produto.nome : `Produto ID: ${t.produto_id ?? "-"}`}</Text>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
+            
+            {loadingTickets ? (
+              <ActivityIndicator size="large" color="#F7931A" style={{ margin: 20 }} />
+            ) : (
+              <ScrollView style={{ maxHeight: 300, width: "100%" }}>
+                {meusTickets.length === 0 ? (
+                  <View style={{ padding: 12, alignItems: "center" }}>
+                    <Text style={{ fontSize: 16, marginBottom: 10 }}>Nenhum ticket disponível.</Text>
+                    <Text style={{ fontSize: 14, color: "#666", textAlign: "center" }}>
+                      Você não possui tickets ativos (usado = false).
+                    </Text>
+                    <Text style={{ fontSize: 12, color: "#999", marginTop: 10 }}>
+                      Use o botão "Criar Ticket Teste" para criar um.
+                    </Text>
+                  </View>
+                ) : (
+                  meusTickets.map((t) => {
+                    const produtoNome = produtos.find((p) => String(p.id) === String(t.produto_id))?.nome || 
+                                      t.produtos?.nome || 
+                                      `Produto ID: ${t.produto_id || "-"}`;
+                    return (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={styles.ticketItem}
+                        onPress={() => aplicarTicketNaCompra(t)}
+                      >
+                        <Text style={{ fontWeight: "bold", fontSize: 16 }}>{t.codigo || `Ticket ${t.id.slice(0, 8)}...`}</Text>
+                        <Text style={{ marginTop: 4 }}>{produtoNome}</Text>
+                        <Text style={{ fontSize: 12, color: "#666", marginTop: 2 }}>
+                          Criado em: {new Date(t.created_at).toLocaleDateString()}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: t.usado ? "#E53935" : "#4CAF50", marginTop: 2 }}>
+                          {t.usado ? "USADO" : "ATIVO"}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </ScrollView>
+            )}
 
-            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setModalEscolherTicketVisible(false)}>
+            <TouchableOpacity 
+              style={styles.modalCloseBtn} 
+              onPress={() => setModalEscolherTicketVisible(false)}
+            >
               <Text style={{ color: "#fff", fontWeight: "bold" }}>Fechar</Text>
             </TouchableOpacity>
           </View>
@@ -748,7 +823,29 @@ const styles = StyleSheet.create({
 
   // modal ticket
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
-  modalCloseBtn: { marginTop: 15, backgroundColor: "#333", padding: 10, borderRadius: 8, alignItems: "center" },
-  ticketItem: { padding: 12, width: "100%", borderRadius: 8, backgroundColor: "#f2f2f2", marginVertical: 6 },
-
+  modalBox: { 
+    backgroundColor: "#fff", 
+    padding: 20, 
+    borderRadius: 12, 
+    width: "90%", 
+    maxHeight: "80%",
+    alignItems: "center" 
+  },
+  modalCloseBtn: { 
+    marginTop: 15, 
+    backgroundColor: "#333", 
+    padding: 10, 
+    borderRadius: 8, 
+    alignItems: "center",
+    width: "100%" 
+  },
+  ticketItem: { 
+    padding: 12, 
+    width: "100%", 
+    borderRadius: 8, 
+    backgroundColor: "#f2f2f2", 
+    marginVertical: 6,
+    borderWidth: 1,
+    borderColor: "#ddd"
+  },
 });
