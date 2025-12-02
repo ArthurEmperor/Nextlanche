@@ -34,12 +34,13 @@ export default function TicketScreens() {
         setRefreshing(false);
         return;
       }
+
       const userId = userData.user.id;
 
       const { data, error } = await supabase
         .from("tickets")
         .select("*")
-        .eq("user_id", userId)
+        .eq("usuario_id", userId)
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -51,6 +52,7 @@ export default function TicketScreens() {
     } catch (e) {
       console.log(e);
     }
+
     setRefreshing(false);
     setLoading(false);
   }
@@ -58,6 +60,7 @@ export default function TicketScreens() {
   useEffect(() => {
     carregarTickets();
 
+    // Realtime
     const channel = supabase
       .channel("public:tickets")
       .on(
@@ -69,9 +72,7 @@ export default function TicketScreens() {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => supabase.removeChannel(channel);
   }, []);
 
   // Criar novo ticket
@@ -80,7 +81,9 @@ export default function TicketScreens() {
       Alert.alert("Campos vazios", "Preencha título e descrição.");
       return;
     }
+
     setCreating(true);
+
     try {
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError || !userData?.user) {
@@ -93,7 +96,7 @@ export default function TicketScreens() {
 
       const { error } = await supabase.from("tickets").insert([
         {
-          user_id: userId,
+          usuario_id: userId,
           title: newTitle,
           description: newDescription,
           status: "open",
@@ -114,6 +117,7 @@ export default function TicketScreens() {
       console.log(e);
       Alert.alert("Erro", "Ocorreu um erro ao criar o ticket.");
     }
+
     setCreating(false);
   }
 
@@ -136,13 +140,19 @@ export default function TicketScreens() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} refreshControl={{
-      refreshing: refreshing,
-      onRefresh: carregarTickets
-    }}>
+    <ScrollView
+      contentContainerStyle={styles.container}
+      refreshControl={{
+        refreshing: refreshing,
+        onRefresh: carregarTickets,
+      }}
+    >
       <Text style={styles.titulo}>Meus Tickets</Text>
 
-      <TouchableOpacity style={styles.btnNovo} onPress={() => setModalVisible(true)}>
+      <TouchableOpacity
+        style={styles.btnNovo}
+        onPress={() => setModalVisible(true)}
+      >
         <Text style={styles.btnNovoTexto}>+ Criar Novo Ticket</Text>
       </TouchableOpacity>
 
@@ -155,13 +165,24 @@ export default function TicketScreens() {
           <View key={ticket.id} style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>{ticket.title}</Text>
-              <Text style={ticket.status === "open" ? styles.statusOpen : styles.statusResolved}>
+              <Text
+                style={
+                  ticket.status === "open"
+                    ? styles.statusOpen
+                    : styles.statusResolved
+                }
+              >
                 {ticket.status === "open" ? "Aberto" : "Resolvido"}
               </Text>
             </View>
+
             <Text style={styles.cardDescription}>{ticket.description}</Text>
+
             {ticket.status === "open" && (
-              <TouchableOpacity style={styles.btnResolver} onPress={() => resolverTicket(ticket.id)}>
+              <TouchableOpacity
+                style={styles.btnResolver}
+                onPress={() => resolverTicket(ticket.id)}
+              >
                 <Text style={styles.btnResolverTexto}>Marcar como Resolvido</Text>
               </TouchableOpacity>
             )}
@@ -169,17 +190,19 @@ export default function TicketScreens() {
         ))
       )}
 
-      {/* Modal de criação de ticket */}
+      {/* Modal */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalBg}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitulo}>Novo Ticket</Text>
+
             <TextInput
               placeholder="Título"
               value={newTitle}
               onChangeText={setNewTitle}
               style={styles.input}
             />
+
             <TextInput
               placeholder="Descrição"
               value={newDescription}
@@ -187,6 +210,7 @@ export default function TicketScreens() {
               style={[styles.input, { height: 100 }]}
               multiline
             />
+
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 12 }}>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: "#ccc" }]}
@@ -195,12 +219,17 @@ export default function TicketScreens() {
               >
                 <Text>Cancelar</Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: "#F7931A" }]}
                 onPress={criarTicket}
                 disabled={creating}
               >
-                {creating ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff" }}>Criar Ticket</Text>}
+                {creating ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={{ color: "#fff" }}>Criar Ticket</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -213,22 +242,60 @@ export default function TicketScreens() {
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: "#f5f7fa", paddingBottom: 50 },
   titulo: { fontSize: 28, fontWeight: "bold", textAlign: "center", marginBottom: 20 },
-  btnNovo: { backgroundColor: "#F7931A", padding: 12, borderRadius: 10, alignItems: "center", marginBottom: 20 },
+  btnNovo: {
+    backgroundColor: "#F7931A",
+    padding: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginBottom: 20,
+  },
   btnNovoTexto: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   semTickets: { textAlign: "center", fontSize: 16, color: "#555", marginTop: 20 },
 
-  card: { backgroundColor: "#fff", padding: 16, borderRadius: 12, marginBottom: 15, elevation: 2 },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  card: {
+    backgroundColor: "#fff",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 15,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
   cardTitle: { fontSize: 18, fontWeight: "bold" },
   statusOpen: { color: "#FF9800", fontWeight: "bold" },
   statusResolved: { color: "#4CAF50", fontWeight: "bold" },
   cardDescription: { fontSize: 15, color: "#555", marginBottom: 10 },
-  btnResolver: { backgroundColor: "#4CAF50", padding: 10, borderRadius: 8, alignItems: "center" },
+  btnResolver: {
+    backgroundColor: "#4CAF50",
+    padding: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
   btnResolverTexto: { color: "#fff", fontWeight: "bold" },
 
-  modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
+  modalBg: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   modalBox: { backgroundColor: "#fff", width: "90%", padding: 20, borderRadius: 12 },
   modalTitulo: { fontSize: 20, fontWeight: "bold", marginBottom: 12 },
-  input: { backgroundColor: "#f1f1f1", padding: 10, borderRadius: 8, marginBottom: 10 },
-  modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, justifyContent: "center", alignItems: "center" },
+  input: {
+    backgroundColor: "#f1f1f1",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  modalBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });
