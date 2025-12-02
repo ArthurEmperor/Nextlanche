@@ -36,6 +36,7 @@ export default function CantinaScreen() {
 
   // Tickets
   const [modalEscolherTicketVisible, setModalEscolherTicketVisible] = useState(false);
+  const [modalEscolherProdutoVisible, setModalEscolherProdutoVisible] = useState(false); // NOVA MODAL
   const [meusTickets, setMeusTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [selectedTicketProdutoId, setSelectedTicketProdutoId] = useState(null);
@@ -79,7 +80,7 @@ export default function CantinaScreen() {
     }
   }
 
-  // CARREGAR TICKETS ATIVOS DO USUÁRIO - VERSÃO CORRIGIDA
+  // CARREGAR TICKETS ATIVOS DO USUÁRIO
   async function carregarTicketsAtivos() {
     try {
       setLoadingTickets(true);
@@ -93,36 +94,23 @@ export default function CantinaScreen() {
       }
       
       const usuarioId = userData.user.id;
-      console.log("Buscando tickets para usuário:", usuarioId);
 
       // BUSCAR tickets onde usado = false (tickets ativos)
       const { data, error } = await supabase
         .from("tickets")
         .select("*, produtos(nome, preco)")
         .eq("usuario_id", usuarioId)
-        .eq("usado", false)  // IMPORTANTE: usado = false significa ticket ATIVO
+        .eq("usado", false)
         .order("created_at", { ascending: true });
 
-      console.log("Resultado da busca de tickets:", {
-        quantidade: data?.length || 0,
-        error: error?.message,
-        usuarioId: usuarioId
-      });
-
       if (error) {
-        console.log("Erro detalhado ao carregar tickets:", error);
-        Alert.alert(
-          "Erro", 
-          `Não foi possível carregar tickets: ${error.message}\n\n` +
-          "Verifique se as policies estão configuradas."
-        );
+        console.log("Erro ao carregar tickets:", error);
         setMeusTickets([]);
       } else {
-        console.log("Tickets carregados com sucesso:", data?.length || 0);
         setMeusTickets(data || []);
       }
     } catch (e) {
-      console.log("Erro em carregarTicketsAtivos:", e);
+      console.log("Erro carregarTicketsAtivos:", e);
       setMeusTickets([]);
     } finally {
       setLoadingTickets(false);
@@ -145,7 +133,6 @@ export default function CantinaScreen() {
       )
       .subscribe();
 
-    // Canal para tickets também
     const ticketsChannel = supabase
       .channel("public:tickets")
       .on(
@@ -179,7 +166,30 @@ export default function CantinaScreen() {
 
   const total = carrinho.reduce((acc, item) => acc + Number(item.preco || 0), 0);
 
-  // FUNÇÃO CORRIGIDA para processar compras
+  // NOVA FUNÇÃO: Calcular total COM ticket aplicado
+  function calcularTotalComTicket() {
+    if (!selectedTicket) return total;
+    
+    let totalCalculado = total;
+    
+    // Se ticket tem produto específico
+    if (selectedTicket.produto_id) {
+      const produtoNoCarrinho = carrinho.find(item => String(item.id) === String(selectedTicket.produto_id));
+      if (produtoNoCarrinho) {
+        totalCalculado -= Number(produtoNoCarrinho.preco || 0);
+      }
+    } 
+    // Se ticket NÃO tem produto específico mas tem produto selecionado manualmente
+    else if (selectedTicketProdutoId) {
+      const produtoNoCarrinho = carrinho.find(item => String(item.id) === String(selectedTicketProdutoId));
+      if (produtoNoCarrinho) {
+        totalCalculado -= Number(produtoNoCarrinho.preco || 0);
+      }
+    }
+    
+    return Math.max(0, totalCalculado); // Não pode ser negativo
+  }
+
   async function processarCompraComItems(items = [], usedTicket = null) {
     setLoadingCompra(true);
 
@@ -202,7 +212,6 @@ export default function CantinaScreen() {
       ),
     };
 
-    // Criar transação
     const { data: insertData, error: insertError } = await supabase
       .from("transacoes")
       .insert([transacao])
@@ -215,7 +224,6 @@ export default function CantinaScreen() {
       return { success: false, msg: "insert-fail", error: insertError };
     }
 
-    // Atualizar saldo
     if (Number(valorCobrado) > 0) {
       try {
         const { data: udata, error: uerr } = await supabase
@@ -236,7 +244,6 @@ export default function CantinaScreen() {
       }
     }
 
-    // Criar tickets de pickup para cada item cobrado (usado = false inicialmente)
     try {
       for (const item of items) {
         const codigoUnico = `TICKET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -245,7 +252,7 @@ export default function CantinaScreen() {
             usuario_id: usuarioId,
             produto_id: item.id,
             transacao_id: insertData.id,
-            usado: false,  // IMPORTANTE: começa como não usado
+            usado: false,
             codigo: codigoUnico,
           },
         ]);
@@ -257,12 +264,11 @@ export default function CantinaScreen() {
       console.log("Erro ao criar tickets dos items cobrados:", e);
     }
 
-    // Se um ticket foi usado para dar um item grátis, atualizamos ele para usado = true
     if (usedTicket && usedTicket.id) {
       try {
         const { error: updErr } = await supabase
           .from("tickets")
-          .update({ usado: true, transacao_id: insertData.id })  // IMPORTANTE: usado = true
+          .update({ usado: true, transacao_id: insertData.id })
           .eq("id", usedTicket.id);
         if (updErr) console.log("Erro ao marcar ticket usado:", updErr);
       } catch (e) {
@@ -278,7 +284,6 @@ export default function CantinaScreen() {
     if (processingPayment) return;
     setProcessingPayment(true);
 
-    // Se o usuário selecionou um ticket
     if (selectedTicket) {
       const produtoGratisIndex = carrinho.findIndex((it) => 
         String(it.id) === String(selectedTicket.produto_id)
@@ -300,7 +305,22 @@ export default function CantinaScreen() {
         }
         freeItem = itemsParaCobrar.splice(idx, 1)[0];
       } else {
-        Alert.alert("Erro", "Selecione um produto para aplicar o ticket.");
+        // Se chegou aqui, ticket não tem produto e usuário não selecionou um
+        Alert.alert(
+          "Selecionar Produto", 
+          "Este ticket não tem um produto específico. Por favor, selecione qual produto do carrinho será gratuito.",
+          [
+            { text: "Cancelar", style: "cancel" },
+            { 
+              text: "Selecionar Agora", 
+              onPress: () => {
+                setProcessingPayment(false);
+                setPaymentModalVisible(false);
+                setModalEscolherProdutoVisible(true);
+              }
+            }
+          ]
+        );
         setProcessingPayment(false);
         return;
       }
@@ -328,7 +348,6 @@ export default function CantinaScreen() {
       return;
     }
 
-    // Pagamento normal (sem ticket)
     if (paymentMethod === "pix") {
       const code = pixCode || `PIX|VAL:${total}|AT:${Date.now()}`;
       setPixCode(code);
@@ -405,12 +424,49 @@ export default function CantinaScreen() {
   // Selecionar ticket para aplicar
   function aplicarTicketNaCompra(ticket) {
     setSelectedTicket(ticket);
-    setSelectedTicketProdutoId(ticket.produto_id || null);
-    setModalEscolherTicketVisible(false);
-    Alert.alert("Ticket selecionado", `Ticket ${ticket.codigo ?? ticket.id} selecionado.`);
+    
+    // Se o ticket já tem um produto_id específico, usar ele
+    if (ticket.produto_id) {
+      setSelectedTicketProdutoId(ticket.produto_id);
+      setModalEscolherTicketVisible(false);
+      Alert.alert("Ticket selecionado", `Ticket ${ticket.codigo} aplicado ao produto.`);
+    } else {
+      // Se o ticket NÃO tem produto específico, perguntar se quer selecionar um agora
+      Alert.alert(
+        "Ticket Genérico", 
+        "Este ticket pode ser usado em qualquer produto. Deseja selecionar um produto agora ou mais tarde?",
+        [
+          { 
+            text: "Mais Tarde", 
+            onPress: () => {
+              setSelectedTicketProdutoId(null);
+              setModalEscolherTicketVisible(false);
+              Alert.alert("Ticket selecionado", "Você poderá escolher o produto na hora do pagamento.");
+            }
+          },
+          { 
+            text: "Selecionar Agora", 
+            onPress: () => {
+              setModalEscolherTicketVisible(false);
+              setModalEscolherProdutoVisible(true);
+            }
+          }
+        ]
+      );
+    }
   }
 
-  // Função para criar um ticket de teste (DEBUG)
+  // NOVA FUNÇÃO: Selecionar produto para ticket genérico
+  function selecionarProdutoParaTicket(produto) {
+    setSelectedTicketProdutoId(produto.id);
+    setModalEscolherProdutoVisible(false);
+    Alert.alert(
+      "Produto selecionado", 
+      `Ticket será aplicado no produto: ${produto.nome} (R$ ${Number(produto.preco).toFixed(2)})`
+    );
+  }
+
+  // Função para criar um ticket de teste
   async function criarTicketTeste() {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData?.user) {
@@ -426,7 +482,7 @@ export default function CantinaScreen() {
           usuario_id: userData.user.id,
           codigo: codigoTeste,
           usado: false,
-          produto_id: produtos.length > 0 ? produtos[0].id : null,
+          produto_id: null, // Ticket genérico, sem produto específico
           created_at: new Date(),
         },
       ])
@@ -435,7 +491,7 @@ export default function CantinaScreen() {
     if (error) {
       Alert.alert("Erro na criação", error.message);
     } else {
-      Alert.alert("Sucesso", "Ticket de teste criado!");
+      Alert.alert("Sucesso", "Ticket de teste genérico criado!");
       await carregarTicketsAtivos();
     }
   }
@@ -485,12 +541,12 @@ export default function CantinaScreen() {
           <Text style={styles.textoBotaoAdd}>Adicionar R$ 5,00</Text>
         </TouchableOpacity>
 
-        {/* Botão para criar ticket de teste (DEBUG) */}
+        {/* Botão para criar ticket de teste */}
         <TouchableOpacity
           style={[styles.botaoAdd, { backgroundColor: "#FF9800", marginBottom: 10 }]}
           onPress={criarTicketTeste}
         >
-          <Text style={styles.textoBotaoAdd}>Criar Ticket Teste (Debug)</Text>
+          <Text style={styles.textoBotaoAdd}>Criar Ticket Teste Genérico</Text>
         </TouchableOpacity>
 
         {/* Botão para usar ticket */}
@@ -506,21 +562,59 @@ export default function CantinaScreen() {
           </Text>
         </TouchableOpacity>
 
+        {/* Display do ticket selecionado */}
         {selectedTicket && (
-          <View style={{ marginHorizontal: 8, marginBottom: 12, padding: 10, backgroundColor: "#fff", borderRadius: 8 }}>
-            <Text style={{ fontWeight: "bold" }}>Ticket selecionado:</Text>
-            <Text>{selectedTicket.codigo ?? selectedTicket.id}</Text>
-            <Text style={{ opacity: 0.7 }}>
-              Cobrirá o produto: {selectedTicket.produto_id ? 
-                (produtos.find(p => String(p.id) === String(selectedTicket.produto_id))?.nome || `ID: ${selectedTicket.produto_id}`) 
-                : "Selecione um produto"}
+          <View style={styles.ticketSelecionadoBox}>
+            <Text style={{ fontWeight: "bold", fontSize: 16, marginBottom: 5 }}>
+              🎫 Ticket selecionado:
             </Text>
-            <TouchableOpacity onPress={() => { 
-              setSelectedTicket(null); 
-              setSelectedTicketProdutoId(null); 
-            }} style={{ marginTop: 6 }}>
-              <Text style={{ color: "#E53935" }}>Remover ticket</Text>
+            <Text style={{ fontSize: 14 }}>{selectedTicket.codigo || selectedTicket.id}</Text>
+            
+            {selectedTicket.produto_id ? (
+              <Text style={{ opacity: 0.7, marginTop: 4 }}>
+                Produto específico: {produtos.find(p => String(p.id) === String(selectedTicket.produto_id))?.nome || `ID: ${selectedTicket.produto_id}`}
+              </Text>
+            ) : selectedTicketProdutoId ? (
+              <Text style={{ opacity: 0.7, marginTop: 4 }}>
+                Produto escolhido: {produtos.find(p => String(p.id) === String(selectedTicketProdutoId))?.nome || `ID: ${selectedTicketProdutoId}`}
+              </Text>
+            ) : (
+              <View>
+                <Text style={{ opacity: 0.7, marginTop: 4 }}>
+                  Ticket genérico: escolha um produto
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => setModalEscolherProdutoVisible(true)} 
+                  style={{ marginTop: 6 }}
+                >
+                  <Text style={{ color: "#2196F3", fontWeight: "bold" }}>
+                    📝 Selecionar produto agora
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            
+            <TouchableOpacity 
+              onPress={() => { 
+                setSelectedTicket(null); 
+                setSelectedTicketProdutoId(null); 
+              }} 
+              style={{ marginTop: 8 }}
+            >
+              <Text style={{ color: "#E53935" }}>❌ Remover ticket</Text>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Mostrar economia com ticket */}
+        {selectedTicket && carrinho.length > 0 && (
+          <View style={styles.economiaBox}>
+            <Text style={{ fontWeight: "bold", color: "#4CAF50" }}>
+              💰 Economia com ticket: R$ {Number(total - calcularTotalComTicket()).toFixed(2)}
+            </Text>
+            <Text style={{ fontSize: 12, opacity: 0.7 }}>
+              Total com ticket: R$ {calcularTotalComTicket().toFixed(2)}
+            </Text>
           </View>
         )}
 
@@ -560,24 +654,49 @@ export default function CantinaScreen() {
           <Text style={styles.tituloCarrinho}>Carrinho</Text>
 
           <ScrollView style={styles.scrollCarrinho}>
-            {carrinho.map((item, i) => (
-              <View
-                key={i}
-                style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}
-              >
-                <Text style={styles.itemCarrinho}>
-                  • {item.nome} — R$ {Number(item.preco).toFixed(2)}
-                </Text>
-                <TouchableOpacity onPress={() => removerItemIndex(i)}>
-                  <Text style={{ color: "#E53935" }}>x</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
+            {carrinho.map((item, i) => {
+              // Verificar se este item será gratuito com o ticket
+              const seraGratuito = selectedTicket && (
+                (selectedTicket.produto_id && String(item.id) === String(selectedTicket.produto_id)) ||
+                (selectedTicketProdutoId && String(item.id) === String(selectedTicketProdutoId))
+              );
+              
+              return (
+                <View
+                  key={i}
+                  style={{ 
+                    flexDirection: "row", 
+                    justifyContent: "space-between", 
+                    marginBottom: 6,
+                    backgroundColor: seraGratuito ? "#E8F5E9" : "transparent",
+                    padding: seraGratuito ? 6 : 0,
+                    borderRadius: seraGratuito ? 4 : 0
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.itemCarrinho, seraGratuito && { color: "#2E7D32" }]}>
+                      {seraGratuito ? "🎫 " : "• "}{item.nome} — R$ {Number(item.preco).toFixed(2)}
+                      {seraGratuito && " (GRÁTIS com ticket)"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => removerItemIndex(i)}>
+                    <Text style={{ color: "#E53935" }}>x</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
           </ScrollView>
 
-          <Text style={styles.total}>Total: R$ {Number(total).toFixed(2)}</Text>
+          <Text style={styles.total}>
+            Total: R$ {Number(total).toFixed(2)}
+            {selectedTicket && (
+              <Text style={{ fontSize: 14, color: "#4CAF50" }}>
+                {" "}(R$ {calcularTotalComTicket().toFixed(2)} com ticket)
+              </Text>
+            )}
+          </Text>
 
-          {total > 0 && Number(saldo) >= total && (
+          {total > 0 && Number(saldo) >= calcularTotalComTicket() && (
             <TouchableOpacity
               style={styles.botaoPagar}
               onPress={openPaymentModal}
@@ -588,7 +707,9 @@ export default function CantinaScreen() {
               </Text>
             </TouchableOpacity>
           )}
-          {total > Number(saldo) && <Text style={styles.erroSaldo}>Saldo insuficiente!</Text>}
+          {total > 0 && Number(saldo) < calcularTotalComTicket() && (
+            <Text style={styles.erroSaldo}>Saldo insuficiente!</Text>
+          )}
           <TouchableOpacity style={{ marginTop: 10 }} onPress={limparCarrinho}>
             <Text style={{ color: "#666" }}>Limpar carrinho</Text>
           </TouchableOpacity>
@@ -611,28 +732,27 @@ export default function CantinaScreen() {
                     <Text style={{ fontSize: 14, color: "#666", textAlign: "center" }}>
                       Você não possui tickets ativos (usado = false).
                     </Text>
-                    <Text style={{ fontSize: 12, color: "#999", marginTop: 10 }}>
-                      Use o botão "Criar Ticket Teste" para criar um.
-                    </Text>
                   </View>
                 ) : (
                   meusTickets.map((t) => {
-                    const produtoNome = produtos.find((p) => String(p.id) === String(t.produto_id))?.nome || 
-                                      t.produtos?.nome || 
-                                      `Produto ID: ${t.produto_id || "-"}`;
+                    const produtoNome = t.produto_id ? 
+                      (produtos.find(p => String(p.id) === String(t.produto_id))?.nome || `Produto específico: ${t.produto_id}`) 
+                      : "Ticket genérico (qualquer produto)";
+                    
                     return (
                       <TouchableOpacity
                         key={t.id}
                         style={styles.ticketItem}
                         onPress={() => aplicarTicketNaCompra(t)}
                       >
-                        <Text style={{ fontWeight: "bold", fontSize: 16 }}>{t.codigo || `Ticket ${t.id.slice(0, 8)}...`}</Text>
-                        <Text style={{ marginTop: 4 }}>{produtoNome}</Text>
+                        <Text style={{ fontWeight: "bold", fontSize: 16 }}>
+                          {t.codigo || `Ticket ${t.id.slice(0, 8)}...`}
+                        </Text>
+                        <Text style={{ marginTop: 4, color: t.produto_id ? "#333" : "#2196F3" }}>
+                          {produtoNome}
+                        </Text>
                         <Text style={{ fontSize: 12, color: "#666", marginTop: 2 }}>
                           Criado em: {new Date(t.created_at).toLocaleDateString()}
-                        </Text>
-                        <Text style={{ fontSize: 11, color: t.usado ? "#E53935" : "#4CAF50", marginTop: 2 }}>
-                          {t.usado ? "USADO" : "ATIVO"}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -651,6 +771,66 @@ export default function CantinaScreen() {
         </View>
       </Modal>
 
+      {/* NOVA MODAL: escolha de produto para ticket genérico */}
+      <Modal visible={modalEscolherProdutoVisible} transparent animationType="fade">
+        <View style={styles.modalBg}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitulo}>Escolha um produto para o ticket</Text>
+            <Text style={{ marginBottom: 15, textAlign: "center", color: "#666" }}>
+              Selecione qual produto do carrinho será gratuito:
+            </Text>
+            
+            <ScrollView style={{ maxHeight: 300, width: "100%" }}>
+              {carrinho.length === 0 ? (
+                <View style={{ padding: 12, alignItems: "center" }}>
+                  <Text style={{ fontSize: 16, marginBottom: 10 }}>Carrinho vazio</Text>
+                  <Text style={{ fontSize: 14, color: "#666", textAlign: "center" }}>
+                    Adicione produtos ao carrinho primeiro.
+                  </Text>
+                </View>
+              ) : (
+                carrinho.map((produto, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[styles.produtoItem, selectedTicketProdutoId === produto.id && styles.produtoItemSelecionado]}
+                    onPress={() => selecionarProdutoParaTicket(produto)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: "bold", fontSize: 16 }}>{produto.nome}</Text>
+                      <Text style={{ marginTop: 4, color: "#666" }}>R$ {Number(produto.preco).toFixed(2)}</Text>
+                    </View>
+                    {selectedTicketProdutoId === produto.id && (
+                      <Text style={{ color: "#4CAF50", fontWeight: "bold" }}>✓ Selecionado</Text>
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 15 }}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, { backgroundColor: "#ccc", flex: 1, marginRight: 5 }]} 
+                onPress={() => setModalEscolherProdutoVisible(false)}
+              >
+                <Text>Cancelar</Text>
+              </TouchableOpacity>
+              
+              {selectedTicketProdutoId && (
+                <TouchableOpacity 
+                  style={[styles.modalBtn, { backgroundColor: "#4CAF50", flex: 1, marginLeft: 5 }]} 
+                  onPress={() => {
+                    setModalEscolherProdutoVisible(false);
+                    Alert.alert("Pronto!", "Produto selecionado para o ticket.");
+                  }}
+                >
+                  <Text style={{ color: "#fff" }}>Confirmar</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* MODAL PAGAMENTO */}
       <Modal visible={paymentModalVisible} transparent animationType="slide">
         <View style={styles.paymentModalBg}>
@@ -658,6 +838,24 @@ export default function CantinaScreen() {
             <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10 }}>
               Escolha a forma de pagamento
             </Text>
+
+            {/* Aviso sobre ticket genérico sem produto selecionado */}
+            {selectedTicket && !selectedTicket.produto_id && !selectedTicketProdutoId && (
+              <View style={{ backgroundColor: "#FFF3CD", padding: 10, borderRadius: 8, marginBottom: 15 }}>
+                <Text style={{ color: "#856404", textAlign: "center" }}>
+                  ⚠️ Você precisa selecionar um produto para o ticket antes de pagar.
+                </Text>
+                <TouchableOpacity 
+                  style={{ marginTop: 8, padding: 8, backgroundColor: "#FFC107", borderRadius: 5 }}
+                  onPress={() => {
+                    setPaymentModalVisible(false);
+                    setModalEscolherProdutoVisible(true);
+                  }}
+                >
+                  <Text style={{ textAlign: "center", fontWeight: "bold" }}>Selecionar Produto Agora</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={{ flexDirection: "row", marginBottom: 12 }}>
               <TouchableOpacity
@@ -691,7 +889,7 @@ export default function CantinaScreen() {
                 <TouchableOpacity
                   style={[styles.generatePixBtn]}
                   onPress={() => {
-                    const code = `PIX|VAL:${Number(total).toFixed(2)}|TO:${pixKey || "LOJA"}|AT:${Date.now()}`;
+                    const code = `PIX|VAL:${Number(calcularTotalComTicket()).toFixed(2)}|TO:${pixKey || "LOJA"}|AT:${Date.now()}`;
                     setPixCode(code);
                     Alert.alert("PIX gerado", "Código PIX gerado para copiar.");
                   }}
@@ -738,13 +936,48 @@ export default function CantinaScreen() {
               </>
             )}
 
+            {/* Resumo com ticket */}
+            {selectedTicket && (
+              <View style={{ backgroundColor: "#E8F5E9", padding: 10, borderRadius: 8, marginTop: 10 }}>
+                <Text style={{ fontWeight: "bold", color: "#2E7D32" }}>🎫 Ticket aplicado:</Text>
+                <Text style={{ fontSize: 12 }}>{selectedTicket.codigo}</Text>
+                <Text style={{ marginTop: 5 }}>
+                  Valor original: R$ {Number(total).toFixed(2)}
+                </Text>
+                <Text style={{ fontWeight: "bold" }}>
+                  Valor com ticket: R$ {Number(calcularTotalComTicket()).toFixed(2)}
+                </Text>
+                <Text style={{ color: "#4CAF50", fontSize: 12, marginTop: 3 }}>
+                  Economia: R$ {Number(total - calcularTotalComTicket()).toFixed(2)}
+                </Text>
+              </View>
+            )}
+
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 14 }}>
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: "#ccc" }]} onPress={() => setPaymentModalVisible(false)} disabled={processingPayment}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, { backgroundColor: "#ccc" }]} 
+                onPress={() => setPaymentModalVisible(false)} 
+                disabled={processingPayment}
+              >
                 <Text>Cancelar</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: "#28a745" }]} onPress={handleConfirmPayment} disabled={processingPayment}>
-                {processingPayment ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff" }}>Confirmar pagamento</Text>}
+              <TouchableOpacity 
+                style={[styles.modalBtn, { 
+                  backgroundColor: selectedTicket && !selectedTicket.produto_id && !selectedTicketProdutoId ? "#FF9800" : "#28a745"
+                }]} 
+                onPress={handleConfirmPayment} 
+                disabled={processingPayment || (selectedTicket && !selectedTicket.produto_id && !selectedTicketProdutoId)}
+              >
+                {processingPayment ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={{ color: "#fff" }}>
+                    {selectedTicket && !selectedTicket.produto_id && !selectedTicketProdutoId 
+                      ? "Selecione produto primeiro" 
+                      : "Confirmar pagamento"}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -805,6 +1038,25 @@ const styles = StyleSheet.create({
   textoPagar: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   erroSaldo: { color: "#E53935", marginTop: 8, fontWeight: "bold" },
 
+  ticketSelecionadoBox: {
+    marginHorizontal: 8,
+    marginBottom: 12,
+    padding: 10,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#6C63FF"
+  },
+
+  economiaBox: {
+    marginHorizontal: 8,
+    marginBottom: 12,
+    padding: 10,
+    backgroundColor: "#E8F5E9",
+    borderRadius: 8,
+    alignItems: "center"
+  },
+
   paymentModalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
   paymentModalBox: { backgroundColor: "#fff", padding: 20, borderRadius: 12, width: "90%" },
   payOption: { flex: 1, padding: 10, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, alignItems: "center", marginRight: 5 },
@@ -847,5 +1099,22 @@ const styles = StyleSheet.create({
     marginVertical: 6,
     borderWidth: 1,
     borderColor: "#ddd"
+  },
+
+  // modal produto
+  produtoItem: {
+    padding: 12,
+    width: "100%",
+    borderRadius: 8,
+    backgroundColor: "#f9f9f9",
+    marginVertical: 4,
+    borderWidth: 1,
+    borderColor: "#eee",
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  produtoItemSelecionado: {
+    backgroundColor: "#E8F5E9",
+    borderColor: "#4CAF50"
   },
 });
