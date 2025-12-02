@@ -23,17 +23,25 @@ export default function CantinaScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingCompra, setLoadingCompra] = useState(false);
 
-  // NOVO: modal de pagamento
+  // Modal pagamento
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState("pix"); // "pix" | "card"
-  const [pixKey, setPixKey] = useState(""); // chave/pix informada pelo usuário (opcional)
-  const [pixCode, setPixCode] = useState(""); // código gerado para copiar
+  const [paymentMethod, setPaymentMethod] = useState("pix");
+  const [pixKey, setPixKey] = useState("");
+  const [pixCode, setPixCode] = useState("");
   const [cardNumber, setCardNumber] = useState("");
   const [cardName, setCardName] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvv, setCardCvv] = useState("");
   const [processingPayment, setProcessingPayment] = useState(false);
 
+  // --- NOVO: tickets ---
+  const [modalTicketVisible, setModalTicketVisible] = useState(false); // modal para gerar ticket grátis
+  const [modalEscolherTicketVisible, setModalEscolherTicketVisible] = useState(false); // modal para escolher ticket a aplicar na compra
+  const [meusTickets, setMeusTickets] = useState([]); // tickets ativos do usuário
+  const [selectedTicket, setSelectedTicket] = useState(null); // ticket selecionado para aplicar na compra
+  const [selectedTicketProdutoId, setSelectedTicketProdutoId] = useState(null); // produto que o ticket cobre (padrão vem do ticket.produto_id)
+
+  // Carregar produtos
   async function carregarProdutos() {
     setRefreshing(true);
     const { data, error } = await supabase
@@ -65,6 +73,9 @@ export default function CantinaScreen() {
       )
       .subscribe();
 
+    // também carregar tickets ativos se usuário mudar sessão
+    carregarTicketsAtivos();
+
     return () => {
       supabase.removeChannel(channel);
     };
@@ -80,12 +91,58 @@ export default function CantinaScreen() {
 
   function limparCarrinho() {
     setCarrinho([]);
+    // ao limpar o carrinho removemos seleção de ticket para prevenir inconsistências
+    setSelectedTicket(null);
+    setSelectedTicketProdutoId(null);
   }
 
   const total = carrinho.reduce((acc, item) => acc + Number(item.preco || 0), 0);
 
-  // função que registra a transação e atualiza saldo (reaproveita lógica original)
-  async function registrarTransacaoEMudarSaldo() {
+  // CARREGAR TICKETS ATIVOS DO USUÁRIO
+  async function carregarTicketsAtivos() {
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError || !userData?.user) {
+        setMeusTickets([]);
+        return;
+      }
+      const usuarioId = userData.user.id;
+
+      // tenta buscar por coluna usuario_id ou aluno_id (compatibilidade)
+      // Primeiro tenta usar usuario_id
+      let res = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("usuario_id", usuarioId)
+        .eq("status", "ativo")
+        .order("created_at", { ascending: true });
+
+      if (res.error || !res.data || res.data.length === 0) {
+        // tenta por aluno_id / ou usado boolean false
+        res = await supabase
+          .from("tickets")
+          .select("*")
+          .or(`aluno_id.eq.${usuarioId},usuario_id.eq.${usuarioId}`)
+          .in("status", ["ativo"])
+          .order("created_at", { ascending: true });
+      }
+
+      if (res.error) {
+        console.log("Erro ao carregar tickets (fallback):", res.error);
+        setMeusTickets([]);
+        return;
+      }
+
+      setMeusTickets(res.data || []);
+    } catch (e) {
+      console.log("Erro carregarTicketsAtivos:", e);
+      setMeusTickets([]);
+    }
+  }
+
+  // função reutilizável para criar transação e atualizar saldo e criar tickets para itens passados
+  // items = array de produtos que serão cobrados (EXCLUIR aqui o item grátis quando for usar ticket)
+  async function processarCompraComItems(items = [], usedTicket = null) {
     setLoadingCompra(true);
 
     const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -94,48 +151,85 @@ export default function CantinaScreen() {
       Alert.alert("Login necessário", "Você precisa estar logado para finalizar a compra.");
       return { success: false, msg: "no-user" };
     }
-    const alunoId = userData.user.id;
+    const usuarioId = userData.user.id;
 
-    // checar saldo no servidor (se existir) - conforme original
-    // aqui já assumimos que o pagamento foi "feito" (simulação) — então gravamos a transação
+    // valor cobrado é soma dos items recebidos (items deve já ter excluído o item que ficou grátis)
+    const valorCobrado = items.reduce((acc, it) => acc + Number(it.preco || 0), 0);
+
     const transacao = {
-      aluno_id: alunoId,
+      aluno_id: usuarioId,
       tipo: "compra",
-      valor: total,
+      valor: valorCobrado,
       descricao: JSON.stringify(
-        carrinho.map((p) => ({ id: p.id, nome: p.nome, preco: p.preco }))
+        items.map((p) => ({ id: p.id, nome: p.nome, preco: p.preco }))
       ),
     };
 
+    // criar transacao
     const { data: insertData, error: insertError } = await supabase
       .from("transacoes")
       .insert([transacao])
       .select()
       .single();
 
-    if (insertError) {
+    if (insertError || !insertData) {
       console.log("Erro ao criar transacao:", insertError);
       setLoadingCompra(false);
       return { success: false, msg: "insert-fail", error: insertError };
     }
 
-    // tentar atualizar saldo na tabela usuarios (se existir)
-    try {
-      const { data: udata, error: uerr } = await supabase
-        .from("usuarios")
-        .select("saldo")
-        .eq("id", alunoId)
-        .single();
+    // atualizar saldo somente se valorCobrado > 0
+    if (Number(valorCobrado) > 0) {
+      try {
+        const { data: udata, error: uerr } = await supabase
+          .from("usuarios")
+          .select("saldo")
+          .eq("id", usuarioId)
+          .single();
 
-      if (!uerr && udata && typeof udata.saldo !== "undefined") {
-        const novoSaldo = Number(udata.saldo) - Number(total);
-        await supabase.from("usuarios").update({ saldo: novoSaldo }).eq("id", alunoId);
-        setSaldo(novoSaldo);
-      } else {
-        setSaldo((s) => Number(s) - Number(total));
+        if (!uerr && udata && typeof udata.saldo !== "undefined") {
+          const novoSaldo = Number(udata.saldo) - Number(valorCobrado);
+          await supabase.from("usuarios").update({ saldo: novoSaldo }).eq("id", usuarioId);
+          setSaldo(novoSaldo);
+        } else {
+          setSaldo((s) => Number(s) - Number(valorCobrado));
+        }
+      } catch (e) {
+        setSaldo((s) => Number(s) - Number(valorCobrado));
+      }
+    }
+
+    // criar tickets de pickup para cada item cobrado (um ticket por item)
+    try {
+      for (const item of items) {
+        const { error: ticketError } = await supabase.from("tickets").insert([
+          {
+            usuario_id: usuarioId,
+            produto_id: item.id,
+            transacao_id: insertData.id,
+            status: "ativo",
+            codigo: `TICKET|TX:${insertData.id}|PROD:${item.id}|AT:${Date.now()}`,
+          },
+        ]);
+        if (ticketError) {
+          console.log("Erro ao criar ticket para item:", item.id, ticketError);
+        }
       }
     } catch (e) {
-      setSaldo((s) => Number(s) - Number(total));
+      console.log("Erro ao criar tickets dos items cobrados:", e);
+    }
+
+    // se um ticket foi usado para dar um item grátis, atualizamos ele para 'usado' e linkamos a transacao
+    if (usedTicket && usedTicket.id) {
+      try {
+        const { error: updErr } = await supabase
+          .from("tickets")
+          .update({ status: "usado", transacao_id: insertData.id })
+          .eq("id", usedTicket.id);
+        if (updErr) console.log("Erro ao marcar ticket usado:", updErr);
+      } catch (e) {
+        console.log("Erro marcando ticket usado:", e);
+      }
     }
 
     setLoadingCompra(false);
@@ -147,25 +241,81 @@ export default function CantinaScreen() {
     if (processingPayment) return;
     setProcessingPayment(true);
 
-    // validação simples para cada forma
-    if (paymentMethod === "pix") {
-      // gerar código PIX se não gerado
-      const code = pixCode || `PIX|VAL:${total}|AT:${Date.now()}`;
-      setPixCode(code);
-      // aqui a "simulação" é: usuário copia e cola / efetua pagamento externamente
-      // vamos considerar confirmado por clique em "Confirmar pagamento"
-      // (no mundo real você validaria via webhook de cobrança)
-      // espera um pouquinho pra simular rede
-      await new Promise((r) => setTimeout(r, 700));
-      // prosseguir com gravação
-      const result = await registrarTransacaoEMudarSaldo();
+    // se o usuário selecionou um ticket para aplicar:
+    if (selectedTicket) {
+      // verifica se carrinho contém o produto coberto pelo ticket
+      const produtoGratisIndex = carrinho.findIndex((it) => String(it.id) === String(selectedTicket.produto_id));
+      if (produtoGratisIndex === -1) {
+        // se o ticket não tem produto_id associado (por ex, ticket genérico), permitir escolher um produto manualmente:
+        // se selectedTicketProdutoId estiver definido, usamos esse.
+        if (!selectedTicketProdutoId) {
+          Alert.alert("Erro", "Seu ticket não corresponde a nenhum produto no carrinho. Selecione um produto ou remova o ticket.");
+          setProcessingPayment(false);
+          return;
+        }
+      }
+
+      // construímos array de items que serão cobrados (excluimos o item gratuito apenas uma vez)
+      const itemsParaCobrar = [...carrinho];
+      let freeItem = null;
+
+      if (produtoGratisIndex !== -1) {
+        // remover o item na posição produtoGratisIndex
+        freeItem = itemsParaCobrar.splice(produtoGratisIndex, 1)[0];
+      } else if (selectedTicketProdutoId) {
+        // procurar pelo id selecionado manualmente
+        const idx = itemsParaCobrar.findIndex((it) => String(it.id) === String(selectedTicketProdutoId));
+        if (idx === -1) {
+          Alert.alert("Erro", "Produto selecionado para o ticket não está no carrinho.");
+          setProcessingPayment(false);
+          return;
+        }
+        freeItem = itemsParaCobrar.splice(idx, 1)[0];
+      } else {
+        Alert.alert("Erro", "Não foi possível aplicar o ticket ao carrinho.");
+        setProcessingPayment(false);
+        return;
+      }
+
+      // PROCESSAR compra com itemsParaCobrar e marcar o ticket como usado
+      const result = await processarCompraComItems(itemsParaCobrar, selectedTicket);
+
       setProcessingPayment(false);
       setPaymentModalVisible(false);
 
       if (result.success) {
+        // gerar QR contendo também info do item grátis
+        const qrPayload = { itens: [...itemsParaCobrar, { ...freeItem, preco: 0 }], total: itemsParaCobrar.reduce((acc, it) => acc + Number(it.preco || 0), 0), transacao_id: result.data.id, at: Date.now() };
+        setMostrarQR(true);
+        setCarrinho([]);
+        setSelectedTicket(null);
+        setSelectedTicketProdutoId(null);
+        Alert.alert("Sucesso", "Compra registrada (ticket aplicado).");
+        await carregarTicketsAtivos();
+      } else {
+        Alert.alert("Erro", "Não foi possível registrar a compra com ticket.");
+      }
+
+      return;
+    }
+
+    // Caso sem ticket selecionado: pagamento normal (mantive o seu fluxo original)
+    if (paymentMethod === "pix") {
+      const code = pixCode || `PIX|VAL:${total}|AT:${Date.now()}`;
+      setPixCode(code);
+      await new Promise((r) => setTimeout(r, 700));
+
+      // processar com todos os items do carrinho
+      const result = await processarCompraComItems(carrinho, null);
+      setProcessingPayment(false);
+      setPaymentModalVisible(false);
+
+      if (result.success) {
+        const qrPayload = { itens: carrinho, total: Number(total), transacao_id: result.data.id, at: Date.now() };
         setMostrarQR(true);
         setCarrinho([]);
         Alert.alert("Sucesso", "Pagamento via PIX confirmado e compra registrada.");
+        await carregarTicketsAtivos();
       } else {
         Alert.alert("Erro", "Não foi possível registrar a compra.");
       }
@@ -173,24 +323,23 @@ export default function CantinaScreen() {
     }
 
     if (paymentMethod === "card") {
-      // validar campos mínimos
       if (!cardNumber || cardNumber.length < 12 || !cardName || !cardExpiry) {
         setProcessingPayment(false);
         Alert.alert("Dados inválidos", "Preencha os dados do cartão (fictício).");
         return;
       }
 
-      // simular processamento do cartão
       await new Promise((r) => setTimeout(r, 1000));
-      // sucesso simulado
-      const result = await registrarTransacaoEMudarSaldo();
+      const result = await processarCompraComItems(carrinho, null);
       setProcessingPayment(false);
       setPaymentModalVisible(false);
 
       if (result.success) {
+        const qrPayload = { itens: carrinho, total: Number(total), transacao_id: result.data.id, at: Date.now() };
         setMostrarQR(true);
         setCarrinho([]);
         Alert.alert("Sucesso", "Pagamento com cartão (fictício) confirmado e compra registrada.");
+        await carregarTicketsAtivos();
       } else {
         Alert.alert("Erro", "Não foi possível registrar a compra.");
       }
@@ -200,19 +349,67 @@ export default function CantinaScreen() {
     setProcessingPayment(false);
   }
 
-  // quando usuário clica no botão pagar, abrimos o modal de pagamento (em vez de finalizar direto)
   function openPaymentModal() {
     if (carrinho.length === 0) {
       Alert.alert("Carrinho vazio", "Adicione itens antes de pagar.");
       return;
     }
+    // carregar tickets atuais para possibilitar aplicar na compra
+    carregarTicketsAtivos();
     setPaymentMethod("pix");
     setCardNumber("");
     setCardName("");
     setCardExpiry("");
     setCardCvv("");
-    setPixCode(""); // será gerado ao solicitar
+    setPixCode("");
     setPaymentModalVisible(true);
+  }
+
+  // --------- Gerar ticket grátis (insere um ticket ativo para o usuário) ----------
+  async function gerarTicketGratis(produto) {
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError || !userData?.user) {
+        Alert.alert("Login necessário", "Faça login para receber um ticket grátis.");
+        return;
+      }
+      const usuarioId = userData.user.id;
+
+      // gera código único simples
+      const codigo = `FREE|${usuarioId.slice(0,6)}|PROD:${produto.id}|AT:${Date.now()}`;
+
+      const { data, error } = await supabase.from("tickets").insert([
+        {
+          usuario_id: usuarioId,        // coluna esperada conforme seu esquema
+          produto_id: produto.id,
+          codigo,
+          status: "ativo",
+          created_at: new Date(),
+        },
+      ]);
+
+      if (error) {
+        console.log("Erro insert tickets:", error);
+        Alert.alert("Erro", "Falha ao gerar ticket gratuito. Verifique policies no Supabase.");
+        return;
+      }
+
+      setModalTicketVisible(false);
+      Alert.alert("Ticket criado!", `Você ganhou 1 ticket de ${produto.nome}.`);
+      await carregarTicketsAtivos();
+    } catch (e) {
+      console.log("Erro gerarTicketGratis:", e);
+      Alert.alert("Erro", "Falha ao gerar ticket grátis.");
+    }
+  }
+
+  // ---------- Selecionar ticket para aplicar ----------
+  function aplicarTicketNaCompra(ticket) {
+    // ticket pode ter produto_id ou não; aqui definimos o produto alvo
+    setSelectedTicket(ticket);
+    setSelectedTicketProdutoId(ticket.produto_id || null);
+    setModalEscolherTicketVisible(false);
+    Alert.alert("Ticket selecionado", `Ticket ${ticket.codigo ?? ticket.id} selecionado.`);
   }
 
   return (
@@ -220,7 +417,7 @@ export default function CantinaScreen() {
       <ScrollView
         contentContainerStyle={{ paddingBottom: 50 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={carregarProdutos} />
+          <RefreshControl refreshing={refreshing} onRefresh={async () => { await carregarProdutos(); await carregarTicketsAtivos(); }} />
         }
       >
         <Text style={styles.titulo}>Cantina</Text>
@@ -252,6 +449,28 @@ export default function CantinaScreen() {
         >
           <Text style={styles.textoBotaoAdd}>Adicionar R$ 5,00</Text>
         </TouchableOpacity>
+
+        {/* NOVO: botão para escolher/usar ticket na compra */}
+        <TouchableOpacity
+          style={[styles.botaoAdd, { backgroundColor: "#6C63FF", marginBottom: 16 }]}
+          onPress={async () => {
+            await carregarTicketsAtivos();
+            setModalEscolherTicketVisible(true);
+          }}
+        >
+          <Text style={styles.textoBotaoAdd}>Usar Ticket grátis (escolher)</Text>
+        </TouchableOpacity>
+
+        {selectedTicket && (
+          <View style={{ marginHorizontal: 8, marginBottom: 12, padding: 10, backgroundColor: "#fff", borderRadius: 8 }}>
+            <Text style={{ fontWeight: "bold" }}>Ticket selecionado:</Text>
+            <Text>{selectedTicket.codigo ?? selectedTicket.id}</Text>
+            <Text style={{ opacity: 0.7 }}>Cobrirá o produto ID: {selectedTicket.produto_id ?? selectedTicketProdutoId ?? "qualquer (escolha manual)"}</Text>
+            <TouchableOpacity onPress={() => { setSelectedTicket(null); setSelectedTicketProdutoId(null); }} style={{ marginTop: 6 }}>
+              <Text style={{ color: "#E53935" }}>Remover ticket</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {produtos.length === 0 && (
           <Text style={styles.nenhum}>Nenhum produto disponível no momento.</Text>
@@ -290,9 +509,16 @@ export default function CantinaScreen() {
 
           <ScrollView style={styles.scrollCarrinho}>
             {carrinho.map((item, i) => (
-              <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-                <Text style={styles.itemCarrinho}>• {item.nome} — R$ {Number(item.preco).toFixed(2)}</Text>
-                <TouchableOpacity onPress={() => removerItemIndex(i)}><Text style={{ color: "#E53935" }}>x</Text></TouchableOpacity>
+              <View
+                key={i}
+                style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}
+              >
+                <Text style={styles.itemCarrinho}>
+                  • {item.nome} — R$ {Number(item.preco).toFixed(2)}
+                </Text>
+                <TouchableOpacity onPress={() => removerItemIndex(i)}>
+                  <Text style={{ color: "#E53935" }}>x</Text>
+                </TouchableOpacity>
               </View>
             ))}
           </ScrollView>
@@ -300,34 +526,81 @@ export default function CantinaScreen() {
           <Text style={styles.total}>Total: R$ {Number(total).toFixed(2)}</Text>
 
           {total > 0 && Number(saldo) >= total && (
-            <TouchableOpacity style={styles.botaoPagar} onPress={openPaymentModal} disabled={loadingCompra}>
-              <Text style={styles.textoPagar}>{loadingCompra ? "Processando..." : "Pagar"}</Text>
+            <TouchableOpacity
+              style={styles.botaoPagar}
+              onPress={openPaymentModal}
+              disabled={loadingCompra}
+            >
+              <Text style={styles.textoPagar}>
+                {loadingCompra ? "Processando..." : "Pagar"}
+              </Text>
             </TouchableOpacity>
           )}
           {total > Number(saldo) && <Text style={styles.erroSaldo}>Saldo insuficiente!</Text>}
-          <TouchableOpacity style={{ marginTop: 10 }} onPress={limparCarrinho}><Text style={{ color: "#666" }}>Limpar carrinho</Text></TouchableOpacity>
+          <TouchableOpacity style={{ marginTop: 10 }} onPress={limparCarrinho}>
+            <Text style={{ color: "#666" }}>Limpar carrinho</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
-      {/* MODAL: pagamento */}
+      {/* MODAL: escolha de ticket para aplicar */}
+      <Modal visible={modalEscolherTicketVisible} transparent animationType="fade">
+        <View style={styles.modalBg}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitulo}>Escolha um ticket para aplicar</Text>
+            <ScrollView style={{ maxHeight: 300, width: "100%" }}>
+              {meusTickets.length === 0 ? (
+                <Text style={{ padding: 12 }}>Nenhum ticket disponível.</Text>
+              ) : (
+                meusTickets.map((t) => {
+                  // tenta buscar nome do produto para legibilidade
+                  const produto = produtos.find((p) => String(p.id) === String(t.produto_id));
+                  return (
+                    <TouchableOpacity
+                      key={t.id}
+                      style={styles.ticketItem}
+                      onPress={() => aplicarTicketNaCompra(t)}
+                    >
+                      <Text style={{ fontWeight: "bold" }}>{t.codigo ?? t.id}</Text>
+                      <Text style={{ opacity: 0.7 }}>{produto ? produto.nome : `Produto ID: ${t.produto_id ?? "-"}`}</Text>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setModalEscolherTicketVisible(false)}>
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL PAGAMENTO */}
       <Modal visible={paymentModalVisible} transparent animationType="slide">
         <View style={styles.paymentModalBg}>
           <View style={styles.paymentModalBox}>
-            <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10 }}>Escolha a forma de pagamento</Text>
+            <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10 }}>
+              Escolha a forma de pagamento
+            </Text>
 
             <View style={{ flexDirection: "row", marginBottom: 12 }}>
               <TouchableOpacity
                 style={[styles.payOption, paymentMethod === "pix" && styles.payOptionActive]}
                 onPress={() => setPaymentMethod("pix")}
               >
-                <Text style={paymentMethod === "pix" ? styles.payOptionTextActive : styles.payOptionText}>PIX (Copia & Cola)</Text>
+                <Text style={paymentMethod === "pix" ? styles.payOptionTextActive : styles.payOptionText}>
+                  PIX (Copia & Cola)
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.payOption, paymentMethod === "card" && styles.payOptionActive]}
                 onPress={() => setPaymentMethod("card")}
               >
-                <Text style={paymentMethod === "card" ? styles.payOptionTextActive : styles.payOptionText}>Cartão (fictício)</Text>
+                <Text style={paymentMethod === "card" ? styles.payOptionTextActive : styles.payOptionText}>
+                  Cartão (fictício)
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -364,11 +637,28 @@ export default function CantinaScreen() {
 
             {paymentMethod === "card" && (
               <>
-                <TextInput placeholder="Número do cartão (fictício)" value={cardNumber} onChangeText={setCardNumber} style={styles.input} keyboardType="numeric" />
+                <TextInput
+                  placeholder="Número do cartão (fictício)"
+                  value={cardNumber}
+                  onChangeText={setCardNumber}
+                  style={styles.input}
+                  keyboardType="numeric"
+                />
                 <TextInput placeholder="Nome impresso" value={cardName} onChangeText={setCardName} style={styles.input} />
                 <View style={{ flexDirection: "row", gap: 10 }}>
-                  <TextInput placeholder="MM/AA" value={cardExpiry} onChangeText={setCardExpiry} style={[styles.input, { flex: 1 }]} />
-                  <TextInput placeholder="CVV" value={cardCvv} onChangeText={setCardCvv} style={[styles.input, { width: 80 }]} keyboardType="numeric" />
+                  <TextInput
+                    placeholder="MM/AA"
+                    value={cardExpiry}
+                    onChangeText={setCardExpiry}
+                    style={[styles.input, { flex: 1 }]}
+                  />
+                  <TextInput
+                    placeholder="CVV"
+                    value={cardCvv}
+                    onChangeText={setCardCvv}
+                    style={[styles.input, { width: 80 }]}
+                    keyboardType="numeric"
+                  />
                 </View>
               </>
             )}
@@ -419,32 +709,46 @@ const styles = StyleSheet.create({
   descricao: { fontSize: 13, color: "#666", marginTop: 6 },
   categoria: { fontSize: 12, color: "#888", marginTop: 6 },
   actions: { marginLeft: 12 },
-  botaoAddCarrinho: { backgroundColor: "#000", paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10 },
-  botaoDisabled: { backgroundColor: "#999" },
-  textoAdd: { color: "#fff", fontSize: 16 },
-  boxCarrinho: { backgroundColor: "#fff", padding: 20, marginTop: 24, borderRadius: 20 },
-  tituloCarrinho: { fontSize: 22, fontWeight: "bold" },
-  scrollCarrinho: { maxHeight: 200, marginVertical: 10 },
-  itemCarrinho: { fontSize: 16, marginBottom: 6 },
-  total: { fontSize: 20, fontWeight: "bold", marginTop: 10 },
-  botaoPagar: { backgroundColor: "#28a745", padding: 12, marginTop: 12, borderRadius: 10, alignItems: "center" },
-  textoPagar: { color: "#fff", fontSize: 16 },
-  erroSaldo: { color: "red", marginTop: 10, fontSize: 16, fontWeight: "bold" },
-  modalFundo: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
-  modalBox: { backgroundColor: "#fff", padding: 25, borderRadius: 20, alignItems: "center" },
-  modalTitulo: { fontSize: 20, marginBottom: 15 },
-  botaoFechar: { position: "absolute", right: 10, top: 10, backgroundColor: "#000", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 },
-  textoFechar: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  botaoAddCarrinho: { 
+    backgroundColor: "#000", 
+    paddingVertical: 8, 
+    paddingHorizontal: 12, 
+    borderRadius: 8, 
+    justifyContent: "center", 
+    alignItems: "center" 
+  },
+  botaoDisabled: { backgroundColor: "#888" },
+  textoAdd: { color: "#fff", fontWeight: "bold" },
 
-  // payment modal
+  boxCarrinho: { backgroundColor: "#fff", borderRadius: 12, padding: 12, marginTop: 20 },
+  tituloCarrinho: { fontSize: 20, fontWeight: "bold", marginBottom: 10 },
+  scrollCarrinho: { maxHeight: 150, marginBottom: 10 },
+  itemCarrinho: { fontSize: 16 },
+
+  total: { fontSize: 18, fontWeight: "bold", textAlign: "right", marginVertical: 8 },
+  botaoPagar: { backgroundColor: "#28a745", padding: 12, borderRadius: 8, alignItems: "center" },
+  textoPagar: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+  erroSaldo: { color: "#E53935", marginTop: 8, fontWeight: "bold" },
+
   paymentModalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
-  paymentModalBox: { backgroundColor: "#fff", width: "90%", padding: 18, borderRadius: 12 },
-  payOption: { padding: 10, borderRadius: 8, marginRight: 8, backgroundColor: "#eee" },
-  payOptionActive: { backgroundColor: "#ffecdf" },
-  payOptionText: { color: "#333" },
-  payOptionTextActive: { color: "#000", fontWeight: "bold" },
-  input: { backgroundColor: "#f1f1f1", padding: 10, borderRadius: 8, marginBottom: 10 },
-  generatePixBtn: { backgroundColor: "#2196f3", padding: 10, borderRadius: 8, alignItems: "center", marginBottom: 6 },
+  paymentModalBox: { backgroundColor: "#fff", padding: 20, borderRadius: 12, width: "90%" },
+  payOption: { flex: 1, padding: 10, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, alignItems: "center", marginRight: 5 },
+  payOptionActive: { borderColor: "#28a745", backgroundColor: "#e6f4ea" },
+  payOptionText: { color: "#555" },
+  payOptionTextActive: { color: "#28a745", fontWeight: "bold" },
+  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 8, marginBottom: 10 },
+  generatePixBtn: { backgroundColor: "#000", padding: 10, borderRadius: 8, alignItems: "center" },
   modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, justifyContent: "center", alignItems: "center" },
+
+  modalFundo: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center" },
+  modalBox: { backgroundColor: "#fff", padding: 20, borderRadius: 12, alignItems: "center" },
+  botaoFechar: { position: "absolute", top: 10, right: 10, padding: 8 },
+  textoFechar: { fontWeight: "bold", fontSize: 16 },
+  modalTitulo: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
+
+  // modal ticket
+  modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
+  modalCloseBtn: { marginTop: 15, backgroundColor: "#333", padding: 10, borderRadius: 8, alignItems: "center" },
+  ticketItem: { padding: 12, width: "100%", borderRadius: 8, backgroundColor: "#f2f2f2", marginVertical: 6 },
 
 });
