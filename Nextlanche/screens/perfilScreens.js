@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,26 +12,59 @@ import {
 } from "react-native";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function PerfilScreens() {
   const [foto, setFoto] = useState(
     "https://cdn-icons-png.flaticon.com/512/847/847969.png"
   );
-
   const [nome, setNome] = useState("Usuário Exemplo");
   const [email, setEmail] = useState("email@exemplo.com");
   const [nascimento, setNascimento] = useState("");
   const [bio, setBio] = useState("");
-
   const [modalVisible, setModalVisible] = useState(false);
 
-  // NOVO — forma de pagamento padrão (local)
+  // Configurações de pagamento
   const [payModalVisible, setPayModalVisible] = useState(false);
-  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState("pix"); // "pix" | "card"
+  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState("pix");
   const [savedPixKey, setSavedPixKey] = useState("");
   const [savedCardLast4, setSavedCardLast4] = useState("");
 
-  // Escolher foto
+  // Carregar configurações salvas
+  useEffect(() => {
+    carregarConfiguracoes();
+  }, []);
+
+  async function carregarConfiguracoes() {
+    try {
+      const config = await AsyncStorage.getItem("@payment_settings");
+      if (config) {
+        const parsed = JSON.parse(config);
+        setDefaultPaymentMethod(parsed.method || "pix");
+        setSavedPixKey(parsed.pixKey || "");
+        setSavedCardLast4(parsed.cardLast4 || "");
+      }
+    } catch (error) {
+      console.log("Erro ao carregar configurações:", error);
+    }
+  }
+
+  async function salvarConfiguracoes() {
+    try {
+      const config = {
+        method: defaultPaymentMethod,
+        pixKey: savedPixKey,
+        cardLast4: savedCardLast4,
+      };
+      await AsyncStorage.setItem("@payment_settings", JSON.stringify(config));
+      setPayModalVisible(false);
+      Alert.alert("Salvo", "Configuração de pagamento salva!");
+    } catch (error) {
+      console.log("Erro ao salvar configurações:", error);
+      Alert.alert("Erro", "Não foi possível salvar as configurações.");
+    }
+  }
+
   async function escolherFoto() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -43,12 +76,6 @@ export default function PerfilScreens() {
     if (!result.canceled) {
       setFoto(result.assets[0].uri);
     }
-  }
-
-  function savePaymentSettings() {
-    // atualmente salva só no estado local;
-    setPayModalVisible(false);
-    Alert.alert("Salvo", "Configuração de pagamento salva localmente.");
   }
 
   return (
@@ -91,13 +118,38 @@ export default function PerfilScreens() {
           <Text style={styles.info}>{bio || "Escreva algo sobre você..."}</Text>
         </View>
 
-        {/* NOVO: forma de pagamento padrão */}
-        <View style={{ marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#222" }}>
-          <Text style={{ color: "#ddd", fontWeight: "bold", marginBottom: 6 }}>Forma de pagamento padrão</Text>
-          <Text style={{ color: "#ccc", marginBottom: 8 }}>{defaultPaymentMethod === "pix" ? `PIX — ${savedPixKey || "sem chave"}` : `Cartão — ${savedCardLast4 ? `**** ${savedCardLast4}` : "sem cartão"}`}</Text>
-          <TouchableOpacity style={[styles.botaoEditar, { backgroundColor: "#333" }]} onPress={() => setPayModalVisible(true)}>
-            <FontAwesome name="credit-card" size={18} color="#000" />
-            <Text style={[styles.textoEditar, { color: "#fff", marginLeft: 8 }]}>Editar forma de pagamento</Text>
+        {/* CONFIGURAÇÃO DE PAGAMENTO PADRÃO */}
+        <View style={styles.paymentSection}>
+          <Text style={styles.paymentTitle}>⚡ Pagamento Rápido</Text>
+          <Text style={styles.paymentSubtitle}>
+            Configure sua forma de pagamento preferida para agilizar suas compras
+          </Text>
+          
+          <View style={styles.paymentInfo}>
+            <FontAwesome 
+              name={defaultPaymentMethod === "pix" ? "qrcode" : "credit-card"} 
+              size={24} 
+              color="#ff8c00" 
+            />
+            <View style={{ marginLeft: 10, flex: 1 }}>
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>
+                {defaultPaymentMethod === "pix" ? "PIX" : "Cartão"}
+              </Text>
+              <Text style={{ color: "#aaa", fontSize: 12 }}>
+                {defaultPaymentMethod === "pix" 
+                  ? (savedPixKey || "Clique para adicionar chave PIX")
+                  : (savedCardLast4 ? `Cartão salvo (**** ${savedCardLast4})` : "Clique para salvar cartão")
+                }
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity 
+            style={styles.configPaymentBtn}
+            onPress={() => setPayModalVisible(true)}
+          >
+            <FontAwesome name="cog" size={16} color="#000" />
+            <Text style={styles.configPaymentText}>Configurar Pagamento</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -173,41 +225,87 @@ export default function PerfilScreens() {
         </View>
       </Modal>
 
-      {/* MODAL: Editar forma de pagamento (local) */}
+      {/* MODAL: Configurar Pagamento */}
       <Modal animationType="slide" transparent={true} visible={payModalVisible}>
         <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitulo}>Forma de pagamento</Text>
+          <ScrollView style={styles.modalContent}>
+            <Text style={styles.modalTitulo}>⚡ Pagamento Rápido</Text>
+            <Text style={{ color: "#aaa", marginBottom: 20, textAlign: "center" }}>
+              Configure sua forma de pagamento preferida para agilizar compras
+            </Text>
 
-            <View style={{ flexDirection: "row", marginBottom: 12 }}>
-              <TouchableOpacity onPress={() => setDefaultPaymentMethod("pix")} style={[styles.payChip, defaultPaymentMethod === "pix" && styles.payChipActive]}>
-                <Text style={defaultPaymentMethod === "pix" ? { fontWeight: "bold" } : {}}>PIX</Text>
+            <View style={{ flexDirection: "row", marginBottom: 20 }}>
+              <TouchableOpacity 
+                onPress={() => setDefaultPaymentMethod("pix")} 
+                style={[styles.paymentOption, defaultPaymentMethod === "pix" && styles.paymentOptionActive]}
+              >
+                <FontAwesome name="qrcode" size={28} color={defaultPaymentMethod === "pix" ? "#fff" : "#ff8c00"} />
+                <Text style={[styles.paymentOptionText, defaultPaymentMethod === "pix" && { color: "#fff" }]}>PIX</Text>
+                <Text style={[styles.paymentOptionDesc, defaultPaymentMethod === "pix" && { color: "#fff" }]}>
+                  Mais rápido
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setDefaultPaymentMethod("card")} style={[styles.payChip, defaultPaymentMethod === "card" && styles.payChipActive]}>
-                <Text style={defaultPaymentMethod === "card" ? { fontWeight: "bold" } : {}}>Cartão</Text>
+              
+              <TouchableOpacity 
+                onPress={() => setDefaultPaymentMethod("card")} 
+                style={[styles.paymentOption, defaultPaymentMethod === "card" && styles.paymentOptionActive]}
+              >
+                <FontAwesome name="credit-card" size={28} color={defaultPaymentMethod === "card" ? "#fff" : "#ff8c00"} />
+                <Text style={[styles.paymentOptionText, defaultPaymentMethod === "card" && { color: "#fff" }]}>Cartão</Text>
+                <Text style={[styles.paymentOptionDesc, defaultPaymentMethod === "card" && { color: "#fff" }]}>
+                  Mais cômodo
+                </Text>
               </TouchableOpacity>
             </View>
 
             {defaultPaymentMethod === "pix" ? (
-              <>
-                <Text style={{ color: "#ccc", marginBottom: 6 }}>Chave PIX (opcional)</Text>
-                <TextInput placeholder="chave@example.com / CPF / Celular" value={savedPixKey} onChangeText={setSavedPixKey} style={styles.input} />
-              </>
+              <View style={styles.paymentForm}>
+                <Text style={styles.formLabel}>Chave PIX (opcional)</Text>
+                <Text style={styles.formHint}>
+                  Se cadastrar uma chave, ela será sugerida automaticamente
+                </Text>
+                <TextInput
+                  placeholder="exemplo@email.com / 123.456.789-00 / (11) 99999-9999"
+                  value={savedPixKey}
+                  onChangeText={setSavedPixKey}
+                  style={styles.input}
+                  placeholderTextColor="#666"
+                />
+              </View>
             ) : (
-              <>
-                <Text style={{ color: "#ccc", marginBottom: 6 }}>Salvar cartão (fictício)</Text>
-                <TextInput placeholder="Últimos 4 dígitos" value={savedCardLast4} onChangeText={setSavedCardLast4} style={styles.input} keyboardType="numeric" maxLength={4} />
-              </>
+              <View style={styles.paymentForm}>
+                <Text style={styles.formLabel}>Cartão (fictício)</Text>
+                <Text style={styles.formHint}>
+                  Últimos 4 dígitos para identificação
+                </Text>
+                <TextInput
+                  placeholder="XXXX"
+                  value={savedCardLast4}
+                  onChangeText={(text) => setSavedCardLast4(text.replace(/\D/g, '').slice(0, 4))}
+                  style={styles.input}
+                  keyboardType="numeric"
+                  maxLength={4}
+                  placeholderTextColor="#666"
+                />
+              </View>
             )}
 
-            <TouchableOpacity style={styles.botaoSalvar} onPress={savePaymentSettings}>
-              <Text style={styles.textoSalvar}>Salvar</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.botaoCancelar} onPress={() => setPayModalVisible(false)}>
-              <Text style={styles.textoCancelar}>Fechar</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={{ flexDirection: "row", marginTop: 20 }}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.cancelBtn]} 
+                onPress={() => setPayModalVisible(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.saveBtn]} 
+                onPress={salvarConfiguracoes}
+              >
+                <Text style={styles.saveBtnText}>Salvar Preferência</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
     </ScrollView>
@@ -220,14 +318,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#111",
     alignItems: "center",
   },
-
   titulo: {
     fontSize: 30,
     fontWeight: "bold",
     color: "#ff8c00",
     marginBottom: 25,
   },
-
   fotoBox: {
     width: 130,
     height: 130,
@@ -237,13 +333,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 25,
   },
-
   foto: {
     width: 110,
     height: 110,
     borderRadius: 55,
   },
-
   editarFoto: {
     position: "absolute",
     bottom: 0,
@@ -252,7 +346,6 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 20,
   },
-
   card: {
     width: "100%",
     backgroundColor: "#1a1a1a",
@@ -260,27 +353,61 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 25,
   },
-
   linha: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 18,
   },
-
   label: {
     fontSize: 17,
     fontWeight: "bold",
     color: "#eee",
     marginLeft: 10,
   },
-
   info: {
     fontSize: 16,
     color: "#ccc",
     marginLeft: 5,
     flexShrink: 1,
   },
-
+  paymentSection: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+  },
+  paymentTitle: {
+    color: "#ff8c00",
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 5,
+  },
+  paymentSubtitle: {
+    color: "#aaa",
+    fontSize: 12,
+    marginBottom: 15,
+  },
+  paymentInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#222",
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15,
+  },
+  configPaymentBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ff8c00",
+    padding: 12,
+    borderRadius: 8,
+    justifyContent: "center",
+  },
+  configPaymentText: {
+    color: "#000",
+    fontWeight: "bold",
+    marginLeft: 8,
+  },
   botaoEditar: {
     flexDirection: "row",
     alignItems: "center",
@@ -291,14 +418,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 15,
   },
-
   textoEditar: {
     color: "#000",
     fontSize: 18,
     fontWeight: "bold",
     marginLeft: 8,
   },
-
   botaoSair: {
     flexDirection: "row",
     alignItems: "center",
@@ -308,43 +433,101 @@ const styles = StyleSheet.create({
     width: "100%",
     justifyContent: "center",
   },
-
   textoSair: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "bold",
     marginLeft: 8,
   },
-
   modalBg: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.8)",
   },
-
   modalContent: {
     width: "90%",
-    backgroundColor: "#222",
+    maxHeight: "80%",
+    backgroundColor: "#1a1a1a",
     padding: 20,
-    borderRadius: 12,
+    borderRadius: 15,
   },
-
   modalTitulo: {
     color: "#ff8c00",
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "bold",
-    marginBottom: 15,
+    marginBottom: 10,
+    textAlign: "center",
   },
-
   input: {
-    backgroundColor: "#333",
+    backgroundColor: "#222",
     color: "#fff",
     padding: 12,
     borderRadius: 8,
-    marginBottom: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#333",
   },
-
+  paymentOption: {
+    flex: 1,
+    alignItems: "center",
+    padding: 15,
+    borderRadius: 10,
+    backgroundColor: "#222",
+    marginHorizontal: 5,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  paymentOptionActive: {
+    backgroundColor: "#ff8c00",
+    borderColor: "#ff8c00",
+  },
+  paymentOptionText: {
+    color: "#ff8c00",
+    fontWeight: "bold",
+    marginTop: 5,
+    fontSize: 16,
+  },
+  paymentOptionDesc: {
+    color: "#aaa",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  paymentForm: {
+    backgroundColor: "#222",
+    padding: 15,
+    borderRadius: 10,
+  },
+  formLabel: {
+    color: "#fff",
+    fontWeight: "bold",
+    marginBottom: 5,
+  },
+  formHint: {
+    color: "#aaa",
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  modalBtn: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginHorizontal: 5,
+  },
+  saveBtn: {
+    backgroundColor: "#ff8c00",
+  },
+  saveBtnText: {
+    color: "#000",
+    fontWeight: "bold",
+  },
+  cancelBtn: {
+    backgroundColor: "#333",
+  },
+  cancelBtnText: {
+    color: "#fff",
+  },
   botaoSalvar: {
     backgroundColor: "#ff8c00",
     padding: 12,
@@ -352,23 +535,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 5,
   },
-
   textoSalvar: {
     color: "#000",
     fontSize: 18,
     fontWeight: "bold",
   },
-
   botaoCancelar: {
     marginTop: 12,
     alignItems: "center",
   },
-
   textoCancelar: {
     color: "#ccc",
     fontSize: 16,
   },
-
-  payChip: { padding: 10, backgroundColor: "#333", borderRadius: 8, marginRight: 8 },
-  payChipActive: { backgroundColor: "#ff8c00" },
 });

@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../services/supabase";
 
 export default function CantinaScreen() {
@@ -36,11 +37,18 @@ export default function CantinaScreen() {
 
   // Tickets
   const [modalEscolherTicketVisible, setModalEscolherTicketVisible] = useState(false);
-  const [modalEscolherProdutoVisible, setModalEscolherProdutoVisible] = useState(false); // NOVA MODAL
+  const [modalEscolherProdutoVisible, setModalEscolherProdutoVisible] = useState(false);
   const [meusTickets, setMeusTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [selectedTicketProdutoId, setSelectedTicketProdutoId] = useState(null);
   const [loadingTickets, setLoadingTickets] = useState(false);
+
+  // Preferências de pagamento do usuário
+  const [userPaymentPref, setUserPaymentPref] = useState({ 
+    method: "pix", 
+    pixKey: "", 
+    cardLast4: "" 
+  });
 
   // Carregar produtos
   async function carregarProdutos() {
@@ -77,6 +85,24 @@ export default function CantinaScreen() {
       }
     } catch (error) {
       console.log("Erro ao carregar saldo:", error);
+    }
+  }
+
+  // Carregar preferências de pagamento salvas
+  async function carregarPreferenciasPagamento() {
+    try {
+      const config = await AsyncStorage.getItem("@payment_settings");
+      if (config) {
+        const parsed = JSON.parse(config);
+        setUserPaymentPref({
+          method: parsed.method || "pix",
+          pixKey: parsed.pixKey || "",
+          cardLast4: parsed.cardLast4 || ""
+        });
+        console.log("Preferências carregadas:", parsed);
+      }
+    } catch (error) {
+      console.log("Erro ao carregar preferências:", error);
     }
   }
 
@@ -121,6 +147,7 @@ export default function CantinaScreen() {
     carregarProdutos();
     carregarSaldo();
     carregarTicketsAtivos();
+    carregarPreferenciasPagamento();
 
     const channel = supabase
       .channel("public:produtos")
@@ -166,7 +193,7 @@ export default function CantinaScreen() {
 
   const total = carrinho.reduce((acc, item) => acc + Number(item.preco || 0), 0);
 
-  // NOVA FUNÇÃO: Calcular total COM ticket aplicado
+  // Calcular total COM ticket aplicado
   function calcularTotalComTicket() {
     if (!selectedTicket) return total;
     
@@ -349,7 +376,7 @@ export default function CantinaScreen() {
     }
 
     if (paymentMethod === "pix") {
-      const code = pixCode || `PIX|VAL:${total}|AT:${Date.now()}`;
+      const code = pixCode || `PIX|VAL:${calcularTotalComTicket()}|AT:${Date.now()}`;
       setPixCode(code);
       await new Promise((r) => setTimeout(r, 700));
 
@@ -360,7 +387,7 @@ export default function CantinaScreen() {
       if (result.success) {
         const qrPayload = { 
           itens: carrinho, 
-          total: Number(total), 
+          total: Number(calcularTotalComTicket()), 
           transacao_id: result.data.id, 
           at: Date.now() 
         };
@@ -389,7 +416,7 @@ export default function CantinaScreen() {
       if (result.success) {
         const qrPayload = { 
           itens: carrinho, 
-          total: Number(total), 
+          total: Number(calcularTotalComTicket()), 
           transacao_id: result.data.id, 
           at: Date.now() 
         };
@@ -411,9 +438,26 @@ export default function CantinaScreen() {
       Alert.alert("Carrinho vazio", "Adicione itens antes de pagar.");
       return;
     }
+    
     carregarTicketsAtivos();
-    setPaymentMethod("pix");
-    setCardNumber("");
+    carregarPreferenciasPagamento(); // Atualizar preferências antes de abrir
+    
+    // Usar preferência do usuário como padrão
+    setPaymentMethod(userPaymentPref.method || "pix");
+    
+    // Se tiver chave PIX salva, preencher automaticamente
+    if (userPaymentPref.method === "pix" && userPaymentPref.pixKey) {
+      setPixKey(userPaymentPref.pixKey);
+    } else {
+      setPixKey(""); // Limpar se não tiver
+    }
+    
+    // Se tiver cartão salvo, mostrar mensagem
+    if (userPaymentPref.method === "card" && userPaymentPref.cardLast4) {
+      setCardNumber(`**** **** **** ${userPaymentPref.cardLast4}`);
+      // Não preenchemos os outros campos por segurança (fictício)
+    }
+    
     setCardName("");
     setCardExpiry("");
     setCardCvv("");
@@ -456,7 +500,7 @@ export default function CantinaScreen() {
     }
   }
 
-  // NOVA FUNÇÃO: Selecionar produto para ticket genérico
+  // Selecionar produto para ticket genérico
   function selecionarProdutoParaTicket(produto) {
     setSelectedTicketProdutoId(produto.id);
     setModalEscolherProdutoVisible(false);
@@ -507,6 +551,7 @@ export default function CantinaScreen() {
               await carregarProdutos(); 
               await carregarTicketsAtivos(); 
               await carregarSaldo();
+              await carregarPreferenciasPagamento();
             }} 
           />
         }
@@ -771,7 +816,7 @@ export default function CantinaScreen() {
         </View>
       </Modal>
 
-      {/* NOVA MODAL: escolha de produto para ticket genérico */}
+      {/* MODAL: escolha de produto para ticket genérico */}
       <Modal visible={modalEscolherProdutoVisible} transparent animationType="fade">
         <View style={styles.modalBg}>
           <View style={styles.modalBox}>
@@ -831,13 +876,37 @@ export default function CantinaScreen() {
         </View>
       </Modal>
 
-      {/* MODAL PAGAMENTO */}
+      {/* MODAL PAGAMENTO - ATUALIZADA com preferências */}
       <Modal visible={paymentModalVisible} transparent animationType="slide">
         <View style={styles.paymentModalBg}>
           <View style={styles.paymentModalBox}>
             <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10 }}>
               Escolha a forma de pagamento
             </Text>
+
+            {/* Aviso sobre preferência salva */}
+            {userPaymentPref.method && (
+              <View style={{ 
+                backgroundColor: userPaymentPref.method === "pix" ? "#E8F5E9" : "#E3F2FD", 
+                padding: 10, 
+                borderRadius: 8, 
+                marginBottom: 15,
+                flexDirection: "row",
+                alignItems: "center"
+              }}>
+                <Text style={{ 
+                  color: userPaymentPref.method === "pix" ? "#2E7D32" : "#1565C0",
+                  fontSize: 12,
+                  flex: 1
+                }}>
+                  ⚡ <Text style={{ fontWeight: "bold" }}>Pagamento rápido:</Text> Sua preferência é {
+                    userPaymentPref.method === "pix" 
+                    ? "PIX" + (userPaymentPref.pixKey ? ` (${userPaymentPref.pixKey})` : "") 
+                    : "Cartão" + (userPaymentPref.cardLast4 ? ` (**** ${userPaymentPref.cardLast4})` : "")
+                  }
+                </Text>
+              </View>
+            )}
 
             {/* Aviso sobre ticket genérico sem produto selecionado */}
             {selectedTicket && !selectedTicket.produto_id && !selectedTicketProdutoId && (
@@ -881,15 +950,17 @@ export default function CantinaScreen() {
               <>
                 <Text style={{ marginBottom: 6 }}>Chave PIX (opcional):</Text>
                 <TextInput
-                  placeholder="chave@email.com / CPF / Celular"
+                  placeholder={userPaymentPref.pixKey || "chave@email.com / CPF / Celular"}
                   value={pixKey}
                   onChangeText={setPixKey}
                   style={styles.input}
+                  keyboardType="default"
+                  autoCapitalize="none"
                 />
                 <TouchableOpacity
                   style={[styles.generatePixBtn]}
                   onPress={() => {
-                    const code = `PIX|VAL:${Number(calcularTotalComTicket()).toFixed(2)}|TO:${pixKey || "LOJA"}|AT:${Date.now()}`;
+                    const code = `PIX|VAL:${Number(calcularTotalComTicket()).toFixed(2)}|TO:${pixKey || userPaymentPref.pixKey || "LOJA"}|AT:${Date.now()}`;
                     setPixCode(code);
                     Alert.alert("PIX gerado", "Código PIX gerado para copiar.");
                   }}
@@ -917,7 +988,12 @@ export default function CantinaScreen() {
                   style={styles.input}
                   keyboardType="numeric"
                 />
-                <TextInput placeholder="Nome impresso" value={cardName} onChangeText={setCardName} style={styles.input} />
+                <TextInput 
+                  placeholder="Nome impresso" 
+                  value={cardName} 
+                  onChangeText={setCardName} 
+                  style={styles.input} 
+                />
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   <TextInput
                     placeholder="MM/AA"
@@ -992,7 +1068,15 @@ export default function CantinaScreen() {
               <Text style={styles.textoFechar}>X</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitulo}>QR Code do Pedido:</Text>
-            <QRCode size={220} value={JSON.stringify({ itens: carrinho, total: total, at: Date.now() })} />
+            <QRCode 
+              size={220} 
+              value={JSON.stringify({ 
+                itens: carrinho, 
+                total: calcularTotalComTicket(), 
+                at: Date.now(),
+                ticket: selectedTicket ? true : false
+              })} 
+            />
           </View>
         </View>
       </Modal>
