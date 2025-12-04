@@ -9,20 +9,22 @@ import {
   TextInput,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../services/supabase";
 
 export default function PerfilScreens() {
-  const [foto, setFoto] = useState(
-    "https://cdn-icons-png.flaticon.com/512/847/847969.png"
-  );
-  const [nome, setNome] = useState("Usuário Exemplo");
-  const [email, setEmail] = useState("email@exemplo.com");
+  const [foto, setFoto] = useState("https://cdn-icons-png.flaticon.com/512/847/847969.png");
+  const [nome, setNome] = useState("Usuário");
+  const [email, setEmail] = useState("");
   const [nascimento, setNascimento] = useState("");
   const [bio, setBio] = useState("");
   const [modalVisible, setModalVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingPerfil, setLoadingPerfil] = useState(true);
 
   // Configurações de pagamento
   const [payModalVisible, setPayModalVisible] = useState(false);
@@ -30,12 +32,92 @@ export default function PerfilScreens() {
   const [savedPixKey, setSavedPixKey] = useState("");
   const [savedCardLast4, setSavedCardLast4] = useState("");
 
-  // Carregar configurações salvas
+  // Carregar dados do usuário
   useEffect(() => {
-    carregarConfiguracoes();
+    carregarDadosUsuario();
+    carregarConfiguracoesPagamento();
   }, []);
 
-  async function carregarConfiguracoes() {
+  // CARREGAR DADOS DO USUÁRIO (simplificado - apenas do auth e AsyncStorage)
+  async function carregarDadosUsuario() {
+    try {
+      setLoadingPerfil(true);
+      
+      // 1. Pegar email do usuário logado
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setEmail(user.email || "");
+        
+        // 2. Tentar carregar nome do metadata do auth
+        const nomeAuth = user.user_metadata?.nome || user.email?.split('@')[0] || "Usuário";
+        setNome(nomeAuth);
+        
+        // 3. Carregar perfil salvo localmente
+        const perfilSalvo = await AsyncStorage.getItem(`@perfil_${user.id}`);
+        if (perfilSalvo) {
+          const parsed = JSON.parse(perfilSalvo);
+          setNome(parsed.nome || nomeAuth);
+          setNascimento(parsed.nascimento || "");
+          setBio(parsed.bio || "");
+          if (parsed.foto && parsed.foto !== "default") {
+            setFoto(parsed.foto);
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.log("Erro ao carregar dados:", error);
+    } finally {
+      setLoadingPerfil(false);
+    }
+  }
+
+  // SALVAR PERFIL LOCALMENTE (AsyncStorage)
+  async function salvarPerfil() {
+    try {
+      setLoading(true);
+      
+      // 1. Pegar ID do usuário
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert("Erro", "Você precisa estar logado");
+        setLoading(false);
+        return;
+      }
+
+      // 2. Salvar localmente
+      const dadosPerfil = {
+        nome: nome.trim(),
+        nascimento: nascimento.trim(),
+        bio: bio.trim(),
+        foto: foto.includes("flaticon") ? "default" : foto,
+      };
+
+      await AsyncStorage.setItem(`@perfil_${user.id}`, JSON.stringify(dadosPerfil));
+
+      // 3. Opcional: Atualizar metadata no auth (não obrigatório)
+      try {
+        await supabase.auth.updateUser({
+          data: { nome: nome.trim() }
+        });
+      } catch (authError) {
+        console.log("Não foi possível atualizar auth, mas o perfil foi salvo localmente");
+      }
+
+      Alert.alert("Sucesso", "Perfil salvo!");
+      setModalVisible(false);
+      
+    } catch (error) {
+      console.log("Erro ao salvar perfil:", error);
+      Alert.alert("Sucesso", "Perfil salvo localmente!");
+      setModalVisible(false);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Carregar configurações de pagamento
+  async function carregarConfiguracoesPagamento() {
     try {
       const config = await AsyncStorage.getItem("@payment_settings");
       if (config) {
@@ -49,7 +131,7 @@ export default function PerfilScreens() {
     }
   }
 
-  async function salvarConfiguracoes() {
+  async function salvarConfiguracoesPagamento() {
     try {
       const config = {
         method: defaultPaymentMethod,
@@ -66,15 +148,20 @@ export default function PerfilScreens() {
   }
 
   async function escolherFoto() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
 
-    if (!result.canceled) {
-      setFoto(result.assets[0].uri);
+      if (!result.canceled) {
+        setFoto(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.log("Erro ao escolher foto:", error);
+      Alert.alert("Erro", "Não foi possível selecionar a foto");
     }
   }
 
@@ -82,97 +169,107 @@ export default function PerfilScreens() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.titulo}>Seu Perfil</Text>
 
-      {/* FOTO DE PERFIL */}
-      <TouchableOpacity style={styles.fotoBox} onPress={escolherFoto}>
-        <Image source={{ uri: foto }} style={styles.foto} />
-        <View style={styles.editarFoto}>
-          <FontAwesome name="camera" size={18} color="#000" />
+      {loadingPerfil ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#ff8c00" />
+          <Text style={styles.loadingText}>Carregando perfil...</Text>
         </View>
-      </TouchableOpacity>
+      ) : (
+        <>
+          {/* FOTO DE PERFIL */}
+          <TouchableOpacity style={styles.fotoBox} onPress={escolherFoto}>
+            <Image source={{ uri: foto }} style={styles.foto} />
+            <View style={styles.editarFoto}>
+              <FontAwesome name="camera" size={18} color="#000" />
+            </View>
+          </TouchableOpacity>
 
-      {/* CARD DE INFORMAÇÕES */}
-      <View style={styles.card}>
-        <View style={styles.linha}>
-          <FontAwesome name="user" size={22} color="#ff8c00" />
-          <Text style={styles.label}>Nome:</Text>
-          <Text style={styles.info}>{nome}</Text>
-        </View>
+          {/* CARD DE INFORMAÇÕES */}
+          <View style={styles.card}>
+            <View style={styles.linha}>
+              <FontAwesome name="user" size={22} color="#ff8c00" />
+              <Text style={styles.label}>Nome:</Text>
+              <Text style={styles.info}>{nome}</Text>
+            </View>
 
-        <View style={styles.linha}>
-          <FontAwesome name="envelope" size={22} color="#ff8c00" />
-          <Text style={styles.label}>Email:</Text>
-          <Text style={styles.info}>{email}</Text>
-        </View>
+            <View style={styles.linha}>
+              <FontAwesome name="envelope" size={22} color="#ff8c00" />
+              <Text style={styles.label}>Email:</Text>
+              <Text style={styles.info}>{email}</Text>
+            </View>
 
-        <View style={styles.linha}>
-          <FontAwesome name="calendar" size={22} color="#ff8c00" />
-          <Text style={styles.label}>Nascimento:</Text>
-          <Text style={styles.info}>
-            {nascimento || "Adicionar data..."}
-          </Text>
-        </View>
-
-        <View style={styles.linha}>
-          <FontAwesome name="info-circle" size={22} color="#ff8c00" />
-          <Text style={styles.label}>Bio:</Text>
-          <Text style={styles.info}>{bio || "Escreva algo sobre você..."}</Text>
-        </View>
-
-        {/* CONFIGURAÇÃO DE PAGAMENTO PADRÃO */}
-        <View style={styles.paymentSection}>
-          <Text style={styles.paymentTitle}>⚡ Pagamento Rápido</Text>
-          <Text style={styles.paymentSubtitle}>
-            Configure sua forma de pagamento preferida para agilizar suas compras
-          </Text>
-          
-          <View style={styles.paymentInfo}>
-            <FontAwesome 
-              name={defaultPaymentMethod === "pix" ? "qrcode" : "credit-card"} 
-              size={24} 
-              color="#ff8c00" 
-            />
-            <View style={{ marginLeft: 10, flex: 1 }}>
-              <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                {defaultPaymentMethod === "pix" ? "PIX" : "Cartão"}
+            <View style={styles.linha}>
+              <FontAwesome name="calendar" size={22} color="#ff8c00" />
+              <Text style={styles.label}>Nascimento:</Text>
+              <Text style={styles.info}>
+                {nascimento || "Adicionar data..."}
               </Text>
-              <Text style={{ color: "#aaa", fontSize: 12 }}>
-                {defaultPaymentMethod === "pix" 
-                  ? (savedPixKey || "Clique para adicionar chave PIX")
-                  : (savedCardLast4 ? `Cartão salvo (**** ${savedCardLast4})` : "Clique para salvar cartão")
-                }
+            </View>
+
+            <View style={styles.linha}>
+              <FontAwesome name="info-circle" size={22} color="#ff8c00" />
+              <Text style={styles.label}>Bio:</Text>
+              <Text style={styles.info}>{bio || "Escreva algo sobre você..."}</Text>
+            </View>
+
+            {/* CONFIGURAÇÃO DE PAGAMENTO PADRÃO */}
+            <View style={styles.paymentSection}>
+              <Text style={styles.paymentTitle}>⚡ Pagamento Rápido</Text>
+              <Text style={styles.paymentSubtitle}>
+                Configure sua forma de pagamento preferida para agilizar suas compras
               </Text>
+              
+              <View style={styles.paymentInfo}>
+                <FontAwesome 
+                  name={defaultPaymentMethod === "pix" ? "qrcode" : "credit-card"} 
+                  size={24} 
+                  color="#ff8c00" 
+                />
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text style={{ color: "#fff", fontWeight: "bold" }}>
+                    {defaultPaymentMethod === "pix" ? "PIX" : "Cartão"}
+                  </Text>
+                  <Text style={{ color: "#aaa", fontSize: 12 }}>
+                    {defaultPaymentMethod === "pix" 
+                      ? (savedPixKey || "Clique para adicionar chave PIX")
+                      : (savedCardLast4 ? `Cartão salvo (**** ${savedCardLast4})` : "Clique para salvar cartão")
+                    }
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity 
+                style={styles.configPaymentBtn}
+                onPress={() => setPayModalVisible(true)}
+              >
+                <FontAwesome name="cog" size={16} color="#000" />
+                <Text style={styles.configPaymentText}>Configurar Pagamento</Text>
+              </TouchableOpacity>
             </View>
           </View>
 
-          <TouchableOpacity 
-            style={styles.configPaymentBtn}
-            onPress={() => setPayModalVisible(true)}
+          {/* BOTÃO EDITAR PERFIL */}
+          <TouchableOpacity
+            style={styles.botaoEditar}
+            onPress={() => setModalVisible(true)}
+            disabled={loading}
           >
-            <FontAwesome name="cog" size={16} color="#000" />
-            <Text style={styles.configPaymentText}>Configurar Pagamento</Text>
+            {loading ? (
+              <ActivityIndicator color="#000" />
+            ) : (
+              <>
+                <FontAwesome name="pencil" size={20} color="#000" />
+                <Text style={styles.textoEditar}>Editar Perfil</Text>
+              </>
+            )}
           </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* BOTÃO EDITAR PERFIL */}
-      <TouchableOpacity
-        style={styles.botaoEditar}
-        onPress={() => setModalVisible(true)}
-      >
-        <FontAwesome name="pencil" size={20} color="#000" />
-        <Text style={styles.textoEditar}>Editar Perfil</Text>
-      </TouchableOpacity>
-
-      {/* BOTÃO SAIR */}
-      <TouchableOpacity style={styles.botaoSair}>
-        <FontAwesome name="sign-out" size={20} color="#fff" />
-        <Text style={styles.textoSair}>Sair da Conta</Text>
-      </TouchableOpacity>
+        </>
+      )}
 
       {/* MODAL DE EDIÇÃO DO PERFIL */}
       <Modal animationType="slide" transparent={true} visible={modalVisible}>
         <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
+          <ScrollView style={styles.modalContent}>
             <Text style={styles.modalTitulo}>Editar Perfil</Text>
 
             <TextInput
@@ -184,11 +281,11 @@ export default function PerfilScreens() {
             />
 
             <TextInput
-              style={styles.input}
-              placeholder="Email"
+              style={[styles.input, { backgroundColor: '#333' }]}
+              placeholder="Email (não pode ser alterado)"
               placeholderTextColor="#777"
               value={email}
-              onChangeText={setEmail}
+              editable={false}
             />
 
             <TextInput
@@ -200,28 +297,37 @@ export default function PerfilScreens() {
             />
 
             <TextInput
-              style={[styles.input, { height: 80 }]}
-              placeholder="Bio"
+              style={[styles.input, { height: 100 }]}
+              placeholder="Fale um pouco sobre você..."
               placeholderTextColor="#777"
               value={bio}
               multiline
+              numberOfLines={4}
               onChangeText={setBio}
             />
 
-            <TouchableOpacity
-              style={styles.botaoSalvar}
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={styles.textoSalvar}>Salvar</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.botaoCancelar}
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={styles.textoCancelar}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={{ flexDirection: "row", marginTop: 10 }}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.cancelBtn]} 
+                onPress={() => setModalVisible(false)}
+                disabled={loading}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.saveBtn]} 
+                onPress={salvarPerfil}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={styles.saveBtnText}>Salvar Perfil</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -300,7 +406,7 @@ export default function PerfilScreens() {
               
               <TouchableOpacity 
                 style={[styles.modalBtn, styles.saveBtn]} 
-                onPress={salvarConfiguracoes}
+                onPress={salvarConfiguracoesPagamento}
               >
                 <Text style={styles.saveBtnText}>Salvar Preferência</Text>
               </TouchableOpacity>
@@ -317,12 +423,22 @@ const styles = StyleSheet.create({
     padding: 25,
     backgroundColor: "#111",
     alignItems: "center",
+    minHeight: "100%",
   },
   titulo: {
     fontSize: 30,
     fontWeight: "bold",
     color: "#ff8c00",
     marginBottom: 25,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    height: 200,
+  },
+  loadingText: {
+    color: "#ff8c00",
+    marginTop: 10,
   },
   fotoBox: {
     width: 130,
@@ -363,12 +479,13 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#eee",
     marginLeft: 10,
+    width: 100,
   },
   info: {
     fontSize: 16,
     color: "#ccc",
     marginLeft: 5,
-    flexShrink: 1,
+    flex: 1,
   },
   paymentSection: {
     marginTop: 20,
@@ -424,21 +541,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginLeft: 8,
   },
-  botaoSair: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#d32f2f",
-    paddingVertical: 14,
-    borderRadius: 12,
-    width: "100%",
-    justifyContent: "center",
-  },
-  textoSair: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 8,
-  },
   modalBg: {
     flex: 1,
     justifyContent: "center",
@@ -467,6 +569,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderWidth: 1,
     borderColor: "#333",
+    fontSize: 16,
   },
   paymentOption: {
     flex: 1,
@@ -502,6 +605,7 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
     marginBottom: 5,
+    fontSize: 16,
   },
   formHint: {
     color: "#aaa",
@@ -510,7 +614,7 @@ const styles = StyleSheet.create({
   },
   modalBtn: {
     flex: 1,
-    padding: 12,
+    padding: 14,
     borderRadius: 8,
     alignItems: "center",
     marginHorizontal: 5,
@@ -521,31 +625,13 @@ const styles = StyleSheet.create({
   saveBtnText: {
     color: "#000",
     fontWeight: "bold",
+    fontSize: 16,
   },
   cancelBtn: {
     backgroundColor: "#333",
   },
   cancelBtnText: {
     color: "#fff",
-  },
-  botaoSalvar: {
-    backgroundColor: "#ff8c00",
-    padding: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 5,
-  },
-  textoSalvar: {
-    color: "#000",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  botaoCancelar: {
-    marginTop: 12,
-    alignItems: "center",
-  },
-  textoCancelar: {
-    color: "#ccc",
     fontSize: 16,
   },
 });

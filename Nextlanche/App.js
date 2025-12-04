@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { createStackNavigator } from "@react-navigation/stack";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import { supabase } from "./services/supabase";
-
+import { View, Text } from "react-native";
 // Telas
 import SobreScreens from "./screens/sobreScreens";
 import PerfilScreens from "./screens/perfilScreens";
@@ -31,7 +31,7 @@ function CantinaStack() {
     <Stack.Navigator>
       {/* Tela inicial da Cantina */}
       <Stack.Screen
-        name="Cardapio" // interno do stack da cantina
+        name="Cardapio"
         component={CantinaScreens}
         options={{ headerShown: false }}
       />
@@ -72,7 +72,6 @@ function AdminStack() {
         component={Usuarios}
         options={{ title: "Gerenciar Usuários" }}
       />
-      {/* Mantive Config aqui também — é seguro ter em ambos */}
       <Stack.Screen
         name="Config"
         component={Config}
@@ -89,6 +88,8 @@ function DrawerMenu({ isAdmin }) {
         headerStyle: { backgroundColor: "#FF8A00" },
         headerTintColor: "#fff",
         drawerActiveTintColor: "#FF8A00",
+        drawerInactiveTintColor: "#333",
+        drawerStyle: { backgroundColor: "#fff" },
       }}
     >
       <Drawer.Screen
@@ -101,7 +102,6 @@ function DrawerMenu({ isAdmin }) {
         }}
       />
 
-      {/* A rota "Cantina" leva ao CantinaStack */}
       <Drawer.Screen
         name="Cantina"
         component={CantinaStack}
@@ -132,7 +132,6 @@ function DrawerMenu({ isAdmin }) {
         }}
       />
 
-     
       <Drawer.Screen
         name="Config"
         component={Config}
@@ -153,7 +152,6 @@ function DrawerMenu({ isAdmin }) {
         }}
       />
 
-      {/* ROTA ADMIN: só aparece se isAdmin true */}
       {isAdmin && (
         <Drawer.Screen
           name="Admin"
@@ -172,48 +170,125 @@ function DrawerMenu({ isAdmin }) {
 export default function App() {
   const [session, setSession] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const navigationRef = useRef(null);
 
   useEffect(() => {
-    // pega sessão inicial
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (data.session?.user) checkAdmin(data.session.user.id);
-    });
+    let isMounted = true;
 
-    // vê mudanças de auth
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user) checkAdmin(session.user.id);
-      else setIsAdmin(false);
-    });
+    // Função para verificar admin
+    const checkAdmin = async (userId) => {
+      if (!isMounted) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from("usuarios")
+          .select("tipo")
+          .eq("id", userId)
+          .single();
+        
+        if (isMounted) {
+          setIsAdmin(data?.tipo === "admin");
+        }
+      } catch (e) {
+        console.log("checkAdmin erro:", e);
+        if (isMounted) {
+          setIsAdmin(false);
+        }
+      }
+    };
 
-    
-    return () => sub.subscription?.unsubscribe?.();
+    // Carregar sessão inicial
+    const loadInitialSession = async () => {
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        
+        if (isMounted) {
+          if (error) {
+            console.log("Erro ao carregar sessão inicial:", error);
+          }
+          
+          setSession(initialSession);
+          
+          if (initialSession?.user) {
+            await checkAdmin(initialSession.user.id);
+          }
+          
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.log("Erro no loadInitialSession:", error);
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadInitialSession();
+
+    // Escutar mudanças de autenticação
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!isMounted) return;
+        
+        console.log("Auth state changed:", event);
+        
+        // Atualizar estado da sessão
+        setSession(session);
+        
+        if (session?.user) {
+          await checkAdmin(session.user.id);
+        } else {
+          setIsAdmin(false);
+        }
+        
+        // Não navegar manualmente aqui - o Stack.Navigator faz isso automaticamente
+      }
+    );
+
+    // Cleanup
+    return () => {
+      isMounted = false;
+      subscription?.unsubscribe();
+    };
   }, []);
 
-  async function checkAdmin(userId) {
-    try {
-      const { data } = await supabase
-        .from("usuarios")
-        .select("tipo")
-        .eq("id", userId)
-        .single();
-      setIsAdmin(data?.tipo === "admin");
-    } catch (e) {
-      console.log("checkAdmin erro:", e);
-      setIsAdmin(false);
-    }
+  // Se estiver carregando, mostrar tela de loading
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FF8A00" }}>
+        <Text style={{ color: "#fff", fontSize: 20 }}>Carregando...</Text>
+      </View>
+    );
   }
 
   return (
     <CartProvider>
-      <NavigationContainer>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <NavigationContainer ref={navigationRef}>
+        <Stack.Navigator 
+          screenOptions={{ 
+            headerShown: false,
+            animationEnabled: false // Desabilita animações para evitar conflitos
+          }}
+        >
           {!session ? (
-            <Stack.Screen name="Login" component={LoginScreens} />
+            // Usuário NÃO logado - tela de Login
+            <Stack.Screen 
+              name="Login" 
+              component={LoginScreens}
+              options={{
+                gestureEnabled: false, // Desabilita gestos para evitar voltar para login
+              }}
+            />
           ) : (
-            <Stack.Screen name="MainApp">
-              {() => <DrawerMenu key={isAdmin ? "admin" : "user"} isAdmin={isAdmin} />}
+            // Usuário logado - App principal
+            <Stack.Screen 
+              name="MainApp" 
+              options={{
+                gestureEnabled: false, // Desabilita gestos para evitar logout acidental
+              }}
+            >
+              {(props) => <DrawerMenu {...props} key={isAdmin ? "admin" : "user"} isAdmin={isAdmin} />}
             </Stack.Screen>
           )}
         </Stack.Navigator>
@@ -221,3 +296,4 @@ export default function App() {
     </CartProvider>
   );
 }
+
